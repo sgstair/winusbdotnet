@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 
 namespace winusbdotnet
 {
@@ -41,7 +42,7 @@ namespace winusbdotnet
             IntPtr devInfo = SetupDiGetClassDevs(ref deviceInterface, null, IntPtr.Zero, DIGCF_DEVICEINTERFACE | DIGCF_PRESENT);
             if(devInfo == INVALID_HANDLE_VALUE)
             {
-                throw new Exception("SetupDiGetClassDevs failed", new Win32Exception());
+                throw new Exception("SetupDiGetClassDevs failed. " + (new Win32Exception()).ToString());
             }
 
             try
@@ -58,7 +59,7 @@ namespace winusbdotnet
                     {
                         if (Marshal.GetLastWin32Error() != ERROR_NO_MORE_ITEMS)
                         {
-                            throw new Exception("SetupDiEnumDeviceInterfaces failed", new Win32Exception());
+                            throw new Exception("SetupDiEnumDeviceInterfaces failed " + (new Win32Exception()).ToString());
                         }
                         // We have reached the end of the list of devices.
                         break;
@@ -72,7 +73,7 @@ namespace winusbdotnet
                     {
                         if (Marshal.GetLastWin32Error() != ERROR_INSUFFICIENT_BUFFER)
                         {
-                            throw new Exception("SetupDiGetDeviceInterfaceDetail failed (determining length)", new Win32Exception());
+                            throw new Exception("SetupDiGetDeviceInterfaceDetail failed (determining length) " + (new Win32Exception()).ToString());
                         }
                     }
                     
@@ -90,7 +91,7 @@ namespace winusbdotnet
 
                         if (!SetupDiGetDeviceInterfaceDetail(devInfo, ref interfaceData, mem, requiredLength, ref actualLength, IntPtr.Zero))
                         {
-                            throw new Exception("SetupDiGetDeviceInterfaceDetail failed (retrieving data)", new Win32Exception());
+                            throw new Exception("SetupDiGetDeviceInterfaceDetail failed (retrieving data) " + (new Win32Exception()).ToString());
                         }
 
                         // Convert TCHAR string into chars.
@@ -184,6 +185,20 @@ namespace winusbdotnet
           _In_opt_  HANDLE hTemplateFile
         );
           */
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public extern static SafeFileHandle CreateFile(string lpFileName, UInt32 dwDesiredAccess, 
+            UInt32 dwShareMode, IntPtr lpSecurityAttributes, UInt32 dwCreationDisposition, UInt32 dwFlagsAndAttributes, IntPtr hTemplateFile);
+
+        public const uint FILE_ATTRIBUTE_NORMAL = 0x80;
+        public const uint FILE_FLAG_OVERLAPPED = 0x40000000;
+        public const uint GENERIC_READ = 0x80000000;
+        public const uint GENERIC_WRITE = 0x40000000;
+        public const uint CREATE_NEW = 1;
+        public const uint CREATE_ALWAYS = 2;
+        public const uint OPEN_EXISTING = 3;
+        public const uint FILE_SHARE_READ = 1;
+        public const uint FILE_SHARE_WRITE = 2;
+
 
 
         /* 
@@ -192,13 +207,18 @@ namespace winusbdotnet
           _Out_  PWINUSB_INTERFACE_HANDLE InterfaceHandle
         );
           */
-
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_Initialize(SafeFileHandle deviceHandle, out IntPtr interfaceHandle);
 
         /* 
         BOOL __stdcall WinUsb_Free(
           _In_  WINUSB_INTERFACE_HANDLE InterfaceHandle
         );
         */
+
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_Free(IntPtr interfaceHandle);
+
 
     }
 }

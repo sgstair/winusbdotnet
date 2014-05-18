@@ -19,6 +19,11 @@ namespace test
             foreach(string devicePath in devices)
             {
                 Console.Out.WriteLine(devicePath);
+
+                WinUSBDevice test = new WinUSBDevice(devicePath);
+
+                test.Close();
+                test.Close();
             }
 
             Console.Out.WriteLine("{0} device{1}", devices.Length, devices.Length==1?"":"s");
