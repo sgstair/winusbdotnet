@@ -9,6 +9,7 @@ using System.ComponentModel;
 
 namespace winusbdotnet
 {
+
     public class WinUSBDevice : IDisposable
     {
         public static string[] EnumerateDevices(Guid deviceInterfaceGuid)
@@ -59,7 +60,34 @@ namespace winusbdotnet
             Dispose();
         }
 
+        // Hacky synchronous read
+        public byte[] ReadPipe(byte pipeId, int byteCount)
+        {
+            byte[] data = new byte[byteCount];
 
+            using (Overlapped ov = new Overlapped())
+            {
+                if (!NativeMethods.WinUsb_ReadPipe(WinusbHandle, pipeId, data, (uint)byteCount, IntPtr.Zero, ref ov.OverlappedStruct))
+                {
+                    if (Marshal.GetLastWin32Error() != NativeMethods.ERROR_IO_PENDING)
+                    {
+                        throw new Exception("ReadPipe failed. " + (new Win32Exception()).ToString());
+                    }
+                    // Wait for IO to complete.
+                    ov.WaitEvent.WaitOne();
+                }
+                UInt32 transferSize;
+
+                if (!NativeMethods.WinUsb_GetOverlappedResult(WinusbHandle, ref ov.OverlappedStruct, out transferSize, false))
+                {
+                    throw new Exception("ReadPipe's overlapped result failed. " + (new Win32Exception()).ToString());
+                }
+
+                byte[] newdata = new byte[transferSize];
+                Array.Copy(data, newdata, transferSize);
+                return newdata;
+            }
+        }
 
     }
 }

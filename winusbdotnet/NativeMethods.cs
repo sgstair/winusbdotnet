@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 
@@ -26,7 +27,8 @@ namespace winusbdotnet
         private static IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
 
         private const int ERROR_NO_MORE_ITEMS = 259;
-        private const int ERROR_INSUFFICIENT_BUFFER = 122;
+        private const int ERROR_INSUFFICIENT_BUFFER = 122; 
+        public const int ERROR_IO_PENDING = 997;
 
         /// <summary>
         /// Retrieve device paths that can be opened from a specific device interface guid.
@@ -220,5 +222,60 @@ namespace winusbdotnet
         public extern static bool WinUsb_Free(IntPtr interfaceHandle);
 
 
+        /* 
+        BOOL __stdcall WinUsb_ReadPipe(
+          _In_       WINUSB_INTERFACE_HANDLE InterfaceHandle,
+          _In_       UCHAR PipeID,
+          _Out_      PUCHAR Buffer,
+          _In_       ULONG BufferLength,
+          _Out_opt_  PULONG LengthTransferred,
+          _In_opt_   LPOVERLAPPED Overlapped
+        );
+        */
+
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_ReadPipe(IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength, IntPtr lengthTransferred, ref NativeOverlapped overlapped);
+
+        /* 
+        BOOL __stdcall WinUsb_GetOverlappedResult(
+          _In_   WINUSB_INTERFACE_HANDLE InterfaceHandle,
+          _In_   LPOVERLAPPED lpOverlapped,
+          _Out_  LPDWORD lpNumberOfBytesTransferred,
+          _In_   BOOL bWait
+        );
+        */
+
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_GetOverlappedResult(IntPtr interfaceHandle, ref NativeOverlapped overlapped, out UInt32 numberOfBytesTransferred, bool wait);
+
+
+
     }
+
+    public struct NativeOverlapped
+    {
+        public IntPtr Internal;
+        public IntPtr InternalHigh;
+        public IntPtr Pointer;
+        public SafeWaitHandle Event;
+    }
+
+    public class Overlapped : IDisposable
+    { 
+        public Overlapped()
+        {
+            WaitEvent = new ManualResetEvent(false);
+            OverlappedStruct = new NativeOverlapped();
+            OverlappedStruct.Event = WaitEvent.SafeWaitHandle;
+        }
+        public void Dispose()
+        {
+            WaitEvent.Dispose();
+            GC.SuppressFinalize(this);
+        }
+
+        public ManualResetEvent WaitEvent;
+        public NativeOverlapped OverlappedStruct;
+    }
+
 }
