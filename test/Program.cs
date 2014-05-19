@@ -25,12 +25,17 @@ namespace test
 
                 // Try a data test. Test board just has OUT 3 looped back into IN 3
                 // Set pipe timeouts to avoid hanging forever.
-                test.SetPipePolicy(0x03, WinUsbPipePolicy.PIPE_TRANSFER_TIEMOUT, 1000);
-                test.SetPipePolicy(0x83, WinUsbPipePolicy.PIPE_TRANSFER_TIEMOUT, 1000);
+                test.SetPipePolicy(0x03, WinUsbPipePolicy.PIPE_TRANSFER_TIEMOUT, 100);
+                test.SetPipePolicy(0x83, WinUsbPipePolicy.PIPE_TRANSFER_TIEMOUT, 100);
 
                 // Send some junk via OUT 3
                 byte[] data = new byte[128];
                 r.NextBytes(data);
+
+                // Flush out any data that might have been here from a previous run...
+                // Will take about as long as the transfer timeout.
+                while (test.ReadPipe(0x83, 64).Length != 0) ;
+
 
                 test.WritePipe(0x03, data);
 
@@ -47,17 +52,8 @@ namespace test
                 Console.Out.WriteLine("Passed basic transfer test");
 
                 // Timeout test
-                bool passed = true;
-                try
-                {
-                    returnData = test.ReadPipe(0x83, 32);
-                    passed = false;
-                }
-                catch
-                {
-
-                }
-                if (!passed) { throw new Exception("Pipe didn't timeout, where did it get that data?"); }
+                returnData = test.ReadPipe(0x83, 32);
+                if (returnData.Length != 0) { throw new Exception("Pipe didn't timeout, where did it get that data?"); }
                 Console.Out.WriteLine("Passed timeout test");
 
                 test.Close();

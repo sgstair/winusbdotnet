@@ -62,6 +62,14 @@ namespace winusbdotnet
             Dispose();
         }
 
+        public void FlushPipe(byte pipeId)
+        {
+            if (!NativeMethods.WinUsb_FlushPipe(WinusbHandle, pipeId))
+            {
+                throw new Exception("FlushPipe failed. " + (new Win32Exception()).ToString());
+            }
+        }
+
         public UInt32 GetPipePolicy(byte pipeId, WinUsbPipePolicy policyType)
         {
             UInt32[] data = new UInt32[1];
@@ -95,6 +103,11 @@ namespace winusbdotnet
             while (read < byteCount)
             {
                 byte[] data = ReadPipe(pipeId, byteCount - read);
+                if(data.Length  == 0)
+                {
+                    // Timeout happened in ReadPipe.
+                    throw new Exception("Timed out while trying to read data.");
+                }
                 if (data.Length == byteCount) return data;
                 if (accumulate == null)
                 {
@@ -126,6 +139,11 @@ namespace winusbdotnet
 
                 if (!NativeMethods.WinUsb_GetOverlappedResult(WinusbHandle, ref ov.OverlappedStruct, out transferSize, true))
                 {
+                    if(Marshal.GetLastWin32Error() == NativeMethods.ERROR_SEM_TIMEOUT)
+                    { 
+                        // This was a pipe timeout. Return an empty byte array to indicate this case.
+                        return new byte[0];
+                    }
                     throw new Exception("ReadPipe's overlapped result failed. " + (new Win32Exception()).ToString());
                 }
 

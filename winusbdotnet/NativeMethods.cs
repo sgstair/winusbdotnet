@@ -27,7 +27,9 @@ namespace winusbdotnet
         private static IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
 
         private const int ERROR_NO_MORE_ITEMS = 259;
-        private const int ERROR_INSUFFICIENT_BUFFER = 122; 
+        private const int ERROR_INSUFFICIENT_BUFFER = 122;
+
+        public const int ERROR_SEM_TIMEOUT = 121;
         public const int ERROR_IO_PENDING = 997;
 
         /// <summary>
@@ -291,6 +293,15 @@ namespace winusbdotnet
         public extern static bool WinUsb_GetPipePolicy(IntPtr interfaceHandle, byte pipeId, UInt32 policyType, ref UInt32 valueLength, UInt32[] value);
 
 
+        /* 
+        BOOL __stdcall WinUsb_FlushPipe(
+          _In_  WINUSB_INTERFACE_HANDLE InterfaceHandle,
+          _In_  UCHAR PipeID
+        );
+        */
+
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_FlushPipe(IntPtr interfaceHandle, byte pipeId);
 
 
     }
