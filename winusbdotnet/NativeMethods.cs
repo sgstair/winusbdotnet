@@ -237,6 +237,8 @@ namespace winusbdotnet
 
         [DllImport("winusb.dll", SetLastError = true)]
         public extern static bool WinUsb_ReadPipe(IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength, IntPtr lengthTransferred, ref NativeOverlapped overlapped);
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_ReadPipe(IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength, ref UInt32 lengthTransferred, IntPtr overlapped);
 
         /* 
         BOOL __stdcall WinUsb_WritePipe(
@@ -251,6 +253,8 @@ namespace winusbdotnet
 
         [DllImport("winusb.dll", SetLastError = true)]
         public extern static bool WinUsb_WritePipe(IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength, IntPtr lengthTransferred, ref NativeOverlapped overlapped);
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_WritePipe(IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength, ref UInt32 lengthTransferred, IntPtr overlapped);
 
 
         /* 
