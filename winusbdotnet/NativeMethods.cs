@@ -237,6 +237,21 @@ namespace winusbdotnet
         public extern static bool WinUsb_ReadPipe(IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength, IntPtr lengthTransferred, ref NativeOverlapped overlapped);
 
         /* 
+        BOOL __stdcall WinUsb_WritePipe(
+          _In_       WINUSB_INTERFACE_HANDLE InterfaceHandle,
+          _In_       UCHAR PipeID,
+          _In_       PUCHAR Buffer,
+          _In_       ULONG BufferLength,
+          _Out_opt_  PULONG LengthTransferred,
+          _In_opt_   LPOVERLAPPED Overlapped
+        );
+        */
+
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_WritePipe(IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength, IntPtr lengthTransferred, ref NativeOverlapped overlapped);
+
+
+        /* 
         BOOL __stdcall WinUsb_GetOverlappedResult(
           _In_   WINUSB_INTERFACE_HANDLE InterfaceHandle,
           _In_   LPOVERLAPPED lpOverlapped,
@@ -249,6 +264,34 @@ namespace winusbdotnet
         public extern static bool WinUsb_GetOverlappedResult(IntPtr interfaceHandle, ref NativeOverlapped overlapped, out UInt32 numberOfBytesTransferred, bool wait);
 
 
+        /* 
+        BOOL __stdcall WinUsb_SetPipePolicy(
+          _In_  WINUSB_INTERFACE_HANDLE InterfaceHandle,
+          _In_  UCHAR PipeID,
+          _In_  ULONG PolicyType,
+          _In_  ULONG ValueLength,
+          _In_  PVOID Value
+        );
+        */
+
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_SetPipePolicy(IntPtr interfaceHandle, byte pipeId, UInt32 policyType, UInt32 valueLength, UInt32[] value);
+
+        /* 
+        BOOL __stdcall WinUsb_GetPipePolicy(
+          _In_     WINUSB_INTERFACE_HANDLE InterfaceHandle,
+          _In_     UCHAR PipeID,
+          _In_     ULONG PolicyType,
+          _Inout_  PULONG ValueLength,
+          _Out_    PVOID Value
+        );
+        */
+
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_GetPipePolicy(IntPtr interfaceHandle, byte pipeId, UInt32 policyType, ref UInt32 valueLength, UInt32[] value);
+
+
+
 
     }
 
@@ -257,7 +300,8 @@ namespace winusbdotnet
         public IntPtr Internal;
         public IntPtr InternalHigh;
         public IntPtr Pointer;
-        public SafeWaitHandle Event;
+        //public SafeWaitHandle Event;
+        public IntPtr Event;
     }
 
     public class Overlapped : IDisposable
@@ -266,7 +310,7 @@ namespace winusbdotnet
         {
             WaitEvent = new ManualResetEvent(false);
             OverlappedStruct = new NativeOverlapped();
-            OverlappedStruct.Event = WaitEvent.SafeWaitHandle;
+            OverlappedStruct.Event = WaitEvent.SafeWaitHandle.DangerousGetHandle();
         }
         public void Dispose()
         {
@@ -277,5 +321,19 @@ namespace winusbdotnet
         public ManualResetEvent WaitEvent;
         public NativeOverlapped OverlappedStruct;
     }
+
+    public enum WinUsbPipePolicy
+    {
+        SHORT_PACKET_TERMINATE = 1,
+        AUTO_CLEAR_STALL = 2,
+        PIPE_TRANSFER_TIEMOUT = 3,
+        IGNORE_SHORT_PACKETS = 4,
+        ALLOW_PARTIAL_READS = 5,
+        AUTO_FLUSH = 6,
+        RAW_IO = 7,
+        MAXIMUM_TRANSFER_SIZE = 8,
+        RESET_PIPE_ON_RESUME = 9
+    }
+
 
 }
