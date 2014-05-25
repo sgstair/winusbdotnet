@@ -109,9 +109,10 @@ namespace winusbdotnet
                         for (int i = 0; i < numChars; i++)
                         {
                             stringChars[i] = (char)Marshal.ReadInt16(mem, 4 + i * 2);
+                            if (stringChars[i] == 0) { numChars = i; break; }
                         }
 
-                        string devicePath = new string(stringChars);
+                        string devicePath = new string(stringChars, 0, numChars);
 
                         outputPaths.Add(devicePath);
                     }
