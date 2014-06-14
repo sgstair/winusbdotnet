@@ -122,6 +122,24 @@ namespace winusbdotnet
             }
             return bufferedPipes[pipeId].ReceiveBytes(byteCount);
         }
+        public byte[] BufferedPeekPipe(byte pipeId, int byteCount)
+        {
+            if (!bufferedPipes.ContainsKey(pipeId))
+            {
+                throw new Exception("Pipe not enabled for buffered reads!");
+            }
+            return bufferedPipes[pipeId].PeekBytes(byteCount);
+        }
+
+        public void BufferedSkipBytesPipe(byte pipeId, int byteCount)
+        {
+            if (!bufferedPipes.ContainsKey(pipeId))
+            {
+                throw new Exception("Pipe not enabled for buffered reads!");
+            }
+            bufferedPipes[pipeId].SkipBytes(byteCount);
+        }
+
         public byte[] BufferedReadExactPipe(byte pipeId, int byteCount)
         {
             if (!bufferedPipes.ContainsKey(pipeId))
@@ -307,6 +325,20 @@ namespace winusbdotnet
             return output;
         }
 
+        // Only returns as many as it can.
+        public byte[] PeekBytes(int count)
+        {
+            int queue = QueuedDataLength;
+            if (queue < count)
+                count = queue;
+
+            byte[] output = new byte[count];
+            lock (this)
+            {
+                CopyPeekBytes(output, 0, count);
+            }
+            return output;
+        }
 
         public byte[] ReceiveExactBytes(int count)
         {
@@ -381,6 +413,65 @@ namespace winusbdotnet
                 QueuedLength -= toCopy;
             }
         }
+
+        // Must be called under lock with enough bytes in the buffer.
+        void CopyPeekBytes(byte[] target, int start, int count)
+        {
+            int copied = 0;
+            int skipBytes = SkipFirstBytes;
+
+            foreach(byte[] firstData in ReceivedData)
+            {
+                int available = firstData.Length - skipBytes;
+                int toCopy = count - copied;
+                if (toCopy > available) toCopy = available;
+
+                Array.Copy(firstData, skipBytes, target, start, toCopy);
+
+                skipBytes = 0;
+
+                copied += toCopy;
+                start += toCopy;
+
+                if (copied >= count)
+                {
+                    break;
+                }
+            }
+        }
+
+        public void SkipBytes(int count)
+        {
+            lock (this)
+            {
+                int queue = QueuedLength;
+                if (queue < count)
+                    throw new ArgumentException("count must be less than the data length");
+
+                int copied = 0;
+                while (copied < count)
+                {
+                    byte[] firstData = ReceivedData.Peek();
+                    int available = firstData.Length - SkipFirstBytes;
+                    int toCopy = count - copied;
+                    if (toCopy > available) toCopy = available;
+
+                    if (toCopy == available)
+                    {
+                        ReceivedData.Dequeue();
+                        SkipFirstBytes = 0;
+                    }
+                    else
+                    {
+                        SkipFirstBytes += toCopy;
+                    }
+
+                    copied += toCopy;
+                    QueuedLength -= toCopy;
+                }
+            }
+        }
+
 
         void ThreadFunc(object context)
         {
