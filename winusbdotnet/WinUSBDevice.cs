@@ -66,7 +66,7 @@ namespace winusbdotnet
             foreach (EnumeratedDevice devicePath in NativeMethods.EnumerateDevicesByInterface(deviceInterfaceGuid))
             {
                 yield return new WinUSBEnumeratedDevice(devicePath);
-            }
+        }
         }
 
         public static IEnumerable<WinUSBEnumeratedDevice> EnumerateAllDevices()
@@ -76,6 +76,7 @@ namespace winusbdotnet
                 yield return new WinUSBEnumeratedDevice(devicePath);
             }
         }
+        public delegate void NewDataCallback();
 
         string myDevicePath;
         SafeFileHandle deviceHandle;
@@ -169,6 +170,16 @@ namespace winusbdotnet
                 bufferedPipes.Add(pipeId, new BufferedPipeThread(this, pipeId));
             }
         }
+
+        public void BufferedReadNotifyPipe(byte pipeId, NewDataCallback callback)
+        {
+            if (!bufferedPipes.ContainsKey(pipeId))
+            {
+                throw new Exception("Pipe not enabled for buffered reads!");
+            }
+            bufferedPipes[pipeId].NewDataEvent += callback;
+        }
+
 
         public byte[] BufferedReadPipe(byte pipeId, int byteCount)
         {
@@ -548,6 +559,7 @@ namespace winusbdotnet
                             ReceivedData.Enqueue(data);
                             QueuedLength += data.Length;
                         }
+                        ThreadPool.QueueUserWorkItem(RaiseNewData);
                     }
                 }
                 catch
@@ -559,6 +571,17 @@ namespace winusbdotnet
 
             }
             Stopped = true;
+        }
+
+        public event WinUSBDevice.NewDataCallback NewDataEvent;
+
+        void RaiseNewData(object context)
+        {
+            WinUSBDevice.NewDataCallback cb = NewDataEvent;
+            if (cb != null)
+            {
+                cb();
+            }
         }
 
     }
