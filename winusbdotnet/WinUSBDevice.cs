@@ -25,6 +25,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
@@ -33,15 +34,48 @@ using System.ComponentModel;
 namespace winusbdotnet
 {
 
+    public class WinUSBEnumeratedDevice
+    {
+        internal string DevicePath;
+        internal EnumeratedDevice EnumeratedData;
+        internal WinUSBEnumeratedDevice(EnumeratedDevice enumDev)
+        {
+            DevicePath = enumDev.DevicePath;
+            EnumeratedData = enumDev;
+            Match m = Regex.Match(DevicePath, "vid_(....)");
+            if (m.Success) { VendorID = Convert.ToUInt16(m.Groups[1].Value, 16); }
+            m = Regex.Match(DevicePath, "pid_(....)");
+            if (m.Success) { ProductID = Convert.ToUInt16(m.Groups[1].Value, 16); }
+        }
 
+        public string Path { get { return DevicePath; } }
+        public UInt16 VendorID { get; private set; }
+        public UInt16 ProductID { get; private set; }
+        public Guid InterfaceGuid { get { return EnumeratedData.InterfaceGuid; } }
+
+        public override string ToString()
+        {
+            return string.Format("WinUSBEnumeratedDevice({0},{1})", DevicePath, InterfaceGuid);
+        }
+    }
 
     public class WinUSBDevice : IDisposable
     {
-        public static string[] EnumerateDevices(Guid deviceInterfaceGuid)
+        public static IEnumerable<WinUSBEnumeratedDevice> EnumerateDevices(Guid deviceInterfaceGuid)
         {
-            return NativeMethods.EnumerateDevicesByInterface(deviceInterfaceGuid);
+            foreach (EnumeratedDevice devicePath in NativeMethods.EnumerateDevicesByInterface(deviceInterfaceGuid))
+            {
+                yield return new WinUSBEnumeratedDevice(devicePath);
+            }
         }
 
+        public static IEnumerable<WinUSBEnumeratedDevice> EnumerateAllDevices()
+        {
+            foreach (EnumeratedDevice devicePath in NativeMethods.EnumerateAllWinUsbDevices())
+            {
+                yield return new WinUSBEnumeratedDevice(devicePath);
+            }
+        }
 
         string myDevicePath;
         SafeFileHandle deviceHandle;
@@ -49,11 +83,11 @@ namespace winusbdotnet
 
         internal bool Stopping = false;
 
-        public WinUSBDevice(string devicePath)
+        public WinUSBDevice(WinUSBEnumeratedDevice deviceInfo)
         {
-            myDevicePath = devicePath;
+            myDevicePath = deviceInfo.DevicePath;
 
-            deviceHandle = NativeMethods.CreateFile(devicePath, NativeMethods.GENERIC_READ | NativeMethods.GENERIC_WRITE,
+            deviceHandle = NativeMethods.CreateFile(myDevicePath, NativeMethods.GENERIC_READ | NativeMethods.GENERIC_WRITE,
                 NativeMethods.FILE_SHARE_READ | NativeMethods.FILE_SHARE_WRITE, IntPtr.Zero, NativeMethods.OPEN_EXISTING,
                 NativeMethods.FILE_ATTRIBUTE_NORMAL | NativeMethods.FILE_FLAG_OVERLAPPED, IntPtr.Zero);
 

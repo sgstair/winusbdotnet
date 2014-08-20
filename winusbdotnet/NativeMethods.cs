@@ -10,8 +10,23 @@ using Microsoft.Win32.SafeHandles;
 
 namespace winusbdotnet
 {
+
+    internal class EnumeratedDevice
+    {
+        public string DevicePath { get; set; }
+        public Guid InterfaceGuid { get; set; }
+    }
+
     internal class NativeMethods
     {
+
+        private struct SP_DEVINFO_DATA
+        {
+            public UInt32 cbSize;
+            public Guid classGuid;
+            public UInt32 devInst;
+            public IntPtr reserved;
+        }
 
         private struct SP_DEVICE_INTERFACE_DATA
         {
@@ -22,15 +37,30 @@ namespace winusbdotnet
         }
 
         private const UInt32 DIGCF_PRESENT = 2;
+        private const UInt32 DIGCF_ALLCLASSES = 4;
         private const UInt32 DIGCF_DEVICEINTERFACE = 0x10;
 
         private static IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
 
+        private const int ERROR_FILE_NOT_FOUND = 2;
         private const int ERROR_NO_MORE_ITEMS = 259;
         private const int ERROR_INSUFFICIENT_BUFFER = 122;
+        private const int ERROR_MORE_DATA = 234;
 
         public const int ERROR_SEM_TIMEOUT = 121;
         public const int ERROR_IO_PENDING = 997;
+
+        private const int DICS_FLAG_GLOBAL = 1;
+        private const int DICS_FLAG_CONFIGSPECIFIC = 2;
+
+        private const int DIREG_DEV = 1;
+        private const int DIREG_DRV = 2;
+
+        private const int KEY_READ = 0x20019; // Registry SAM value.
+
+        private const int RRF_RT_REG_SZ = 2;
+        private const int RRF_RT_REG_MULTI_SZ = 0x20;
+
 
         /// <summary>
         /// Retrieve device paths that can be opened from a specific device interface guid.
@@ -38,10 +68,10 @@ namespace winusbdotnet
         /// </summary>
         /// <param name="deviceInterface">Guid uniquely identifying the interface to search for</param>
         /// <returns>List of device paths that can be opened with CreateFile</returns>
-        public static string[] EnumerateDevicesByInterface(Guid deviceInterface)
+        public static EnumeratedDevice[] EnumerateDevicesByInterface(Guid deviceInterface)
         {
             // Horribe horrible things have to be done with SetupDI here. These travesties must never leave this class.
-            List<string> outputPaths = new List<string>();
+            List<EnumeratedDevice> outputPaths = new List<EnumeratedDevice>();
 
             IntPtr devInfo = SetupDiGetClassDevs(ref deviceInterface, null, IntPtr.Zero, DIGCF_DEVICEINTERFACE | DIGCF_PRESENT);
             if(devInfo == INVALID_HANDLE_VALUE)
@@ -69,57 +99,9 @@ namespace winusbdotnet
                         break;
                     }
 
-
                     // This is a valid interface, retrieve its path
-                    UInt32 requiredLength = 0;
+                    outputPaths.Add(new EnumeratedDevice() { DevicePath = RetrieveDeviceInstancePath(devInfo, interfaceData), InterfaceGuid = deviceInterface });
 
-                    if (!SetupDiGetDeviceInterfaceDetail(devInfo, ref interfaceData, IntPtr.Zero, 0, ref requiredLength, IntPtr.Zero))
-                    {
-                        if (Marshal.GetLastWin32Error() != ERROR_INSUFFICIENT_BUFFER)
-                        {
-                            throw new Exception("SetupDiGetDeviceInterfaceDetail failed (determining length) " + (new Win32Exception()).ToString());
-                        }
-                    }
-                    
-                    UInt32 actualLength = requiredLength;
-
-                    if (requiredLength < 6)
-                    {
-                        throw new Exception("Consistency issue: Required memory size should be larger");
-                    }
-
-                    IntPtr mem = Marshal.AllocHGlobal((int)requiredLength);
-                    try
-                    {
-                        Marshal.WriteInt32(mem, 6); // set fake size in fake structure
-
-                        if (!SetupDiGetDeviceInterfaceDetail(devInfo, ref interfaceData, mem, requiredLength, ref actualLength, IntPtr.Zero))
-                        {
-                            throw new Exception("SetupDiGetDeviceInterfaceDetail failed (retrieving data) " + (new Win32Exception()).ToString());
-                        }
-
-                        // Convert TCHAR string into chars.
-                        if(actualLength > requiredLength)
-                        {
-                            throw new Exception("Consistency issue: Actual length should not be larger than buffer size.");
-                        }
-
-                        int numChars = (int)((actualLength - 4) / 2);
-                        char[] stringChars = new char[numChars];
-                        for (int i = 0; i < numChars; i++)
-                        {
-                            stringChars[i] = (char)Marshal.ReadInt16(mem, 4 + i * 2);
-                            if (stringChars[i] == 0) { numChars = i; break; }
-                        }
-
-                        string devicePath = new string(stringChars, 0, numChars);
-
-                        outputPaths.Add(devicePath);
-                    }
-                    finally
-                    {
-                        Marshal.FreeHGlobal(mem);
-                    }
                 }
             }
             finally
@@ -128,6 +110,266 @@ namespace winusbdotnet
             }
 
             return outputPaths.ToArray();
+        }
+
+        public static EnumeratedDevice[] EnumerateAllWinUsbDevices()
+        {
+            List<EnumeratedDevice> outputDevices = new List<EnumeratedDevice>();
+            string[] guids = EnumerateAllWinUsbGuids();
+            foreach (string guid in guids)
+            {
+                try
+                {
+                    Guid g = new Guid(guid);
+                    outputDevices.AddRange(EnumerateDevicesByInterface(g));
+                }
+                catch
+                {
+                    // Ignore failing guid conversions.
+                }
+            }
+            return outputDevices.ToArray();
+        }
+
+        public static string[] EnumerateAllWinUsbGuids()
+        {
+            // Horribe horrible things have to be done with SetupDI here. These travesties must never leave this class.
+            List<string> outputGuids = new List<string>();
+
+            IntPtr devInfo = SetupDiGetClassDevs(IntPtr.Zero, null, IntPtr.Zero, DIGCF_ALLCLASSES | DIGCF_PRESENT);
+            if (devInfo == INVALID_HANDLE_VALUE)
+            {
+                throw new Exception("SetupDiGetClassDevs failed. " + (new Win32Exception()).ToString());
+            }
+
+            try
+            {
+                uint deviceIndex = 0;
+                SP_DEVICE_INTERFACE_DATA interfaceData = new SP_DEVICE_INTERFACE_DATA();
+                SP_DEVINFO_DATA devInfoData = new SP_DEVINFO_DATA();
+
+                bool success = true;
+                for (deviceIndex = 0; ; deviceIndex++)
+                {
+                    devInfoData.cbSize = (uint)Marshal.SizeOf(devInfoData);
+                    success = SetupDiEnumDeviceInfo(devInfo, deviceIndex, ref devInfoData);
+                    if (!success)
+                    {
+                        if (Marshal.GetLastWin32Error() != ERROR_NO_MORE_ITEMS)
+                        {
+                            throw new Exception("SetupDiEnumDeviceInfo failed " + (new Win32Exception()).ToString());
+                        }
+                        // We have reached the end of the list of devices.
+                        break;
+                    }
+
+                    // Enumerate the WinUSB Interface Guids (if present) by looking at the registry.
+                    //DebugEnumRegistryValues(devInfo, devInfoData);
+                    string guid = RetrieveDeviceProperty(devInfo, devInfoData, "DeviceInterfaceGUIDs");
+                    if(guid == null)
+                    {
+                        guid = RetrieveDeviceProperty(devInfo, devInfoData, "DeviceInterfaceGUID");
+                    }
+
+                    if (guid != null)
+                    {
+                        outputGuids.Add(guid);
+                    }
+                }
+            }
+            finally
+            {
+                SetupDiDestroyDeviceInfoList(devInfo);
+            }
+
+            return outputGuids.Distinct().ToArray();
+        }
+
+        static void DebugEnumRegistryValues(IntPtr devInfo, SP_DEVINFO_DATA devInfoData)
+        {
+            System.Console.WriteLine("DebugEnumRegistryValues");
+            IntPtr hKey = SetupDiOpenDevRegKey(devInfo, ref devInfoData, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
+            if (hKey == INVALID_HANDLE_VALUE)
+            {
+                System.Console.WriteLine("Failed");
+                return;
+                throw new Exception("SetupDiGetClassDevs failed. " + (new Win32Exception()).ToString());
+            }
+
+            try
+            {
+
+                IntPtr memValue = Marshal.AllocHGlobal(16384);
+                try
+                {
+                    IntPtr memData = Marshal.AllocHGlobal(65536);
+                    try
+                    {
+
+                        for (int i = 0; ; i++)
+                        {
+                            UInt32 outValueLen = 16384;
+                            UInt32 outDataLen = 65536;
+                            UInt32 outType;
+                            long output = RegEnumValue(hKey, (uint)i, memValue, ref outValueLen, IntPtr.Zero, out outType, memData, ref outDataLen);
+                            if((int)output == ERROR_NO_MORE_ITEMS)
+                            {
+                                break;
+                            }
+                            if (output != 0)
+                            {
+                                throw new Exception("RegEnumValue failed " + (new Win32Exception((int)output)).ToString());
+                            }
+
+                            string value = ReadAsciiString(memValue, (int)outValueLen);
+                            string data = ReadAsciiString(memData, (int)outDataLen);
+
+                            Console.WriteLine("Enum: '{0}' -  {2} '{1}'", value, data, outType);
+
+                        }
+
+                    }
+                    finally
+                    {
+                        Marshal.FreeHGlobal(memData);
+                    }
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(memValue);
+                }
+
+            }
+            finally
+            {
+                RegCloseKey(hKey);
+            }
+        }
+
+
+
+
+        static string RetrieveDeviceProperty(IntPtr devInfo, SP_DEVINFO_DATA devInfoData, string deviceProperty)
+        {
+            IntPtr hKey = SetupDiOpenDevRegKey(devInfo, ref devInfoData, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
+            if (hKey == INVALID_HANDLE_VALUE)
+            {
+                return null;
+                throw new Exception("SetupDiGetClassDevs failed. " + (new Win32Exception()).ToString());
+            }
+
+            try
+            {
+                UInt32 outType;
+                UInt32 outLength = 0;
+                long output = RegGetValue(hKey, null, deviceProperty, RRF_RT_REG_SZ | RRF_RT_REG_MULTI_SZ, out outType, IntPtr.Zero, ref outLength);
+                if(output == ERROR_FILE_NOT_FOUND)
+                {
+                    return null;
+                }
+                if (output != 0)
+                {
+                    throw new Exception("RegGetValue failed (determining length) " + (new Win32Exception((int)output)).ToString());
+                }
+
+                IntPtr mem = Marshal.AllocHGlobal((int)outLength);
+                try
+                {
+
+                    UInt32 actualLength = outLength;
+                    output = RegGetValue(hKey, null, deviceProperty, RRF_RT_REG_SZ | RRF_RT_REG_MULTI_SZ, out outType, mem, ref actualLength);
+                    if (output != 0)
+                    {
+                        throw new Exception("RegGetValue failed (retrieving data) " + (new Win32Exception((int)output)).ToString());
+                    }
+
+                    // Convert TCHAR string into chars.
+                    if (actualLength > outLength)
+                    {
+                        throw new Exception("Consistency issue: Actual length should not be larger than buffer size.");
+                    }
+
+                    return ReadAsciiString(mem, (int)((actualLength)));
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(mem);
+                }
+
+            }
+            finally
+            {
+                RegCloseKey(hKey);
+            }
+        }
+
+        static string RetrieveDeviceInstancePath(IntPtr devInfo, SP_DEVICE_INTERFACE_DATA interfaceData)
+        {
+            // This is a valid interface, retrieve its path
+            UInt32 requiredLength = 0;
+
+            if (!SetupDiGetDeviceInterfaceDetail(devInfo, ref interfaceData, IntPtr.Zero, 0, ref requiredLength, IntPtr.Zero))
+            {
+                {
+                    if (Marshal.GetLastWin32Error() != ERROR_INSUFFICIENT_BUFFER)
+                    {
+                        throw new Exception("SetupDiGetDeviceInterfaceDetail failed (determining length) " + (new Win32Exception()).ToString());
+                    }
+                }
+            }
+
+            UInt32 actualLength = requiredLength;
+
+            if (requiredLength < 6)
+            {
+                throw new Exception("Consistency issue: Required memory size should be larger");
+            }
+
+            IntPtr mem = Marshal.AllocHGlobal((int)requiredLength);
+            try
+            {
+                Marshal.WriteInt32(mem, 6); // set fake size in fake structure
+
+                if (!SetupDiGetDeviceInterfaceDetail(devInfo, ref interfaceData, mem, requiredLength, ref actualLength, IntPtr.Zero))
+                {
+                    throw new Exception("SetupDiGetDeviceInterfaceDetail failed (retrieving data) " + (new Win32Exception()).ToString());
+                }
+
+                // Convert TCHAR string into chars.
+                if (actualLength > requiredLength)
+                {
+                    throw new Exception("Consistency issue: Actual length should not be larger than buffer size.");
+                }
+
+                return ReadString(mem, (int)((actualLength - 4) / 2), 4);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(mem);
+            }
+        }
+
+        static string ReadString(IntPtr source, int length, int offset = 0)
+        {
+            char[] stringChars = new char[length];
+            for (int i = 0; i < length; i++)
+            {
+                stringChars[i] = (char)Marshal.ReadInt16(source, i * 2 + offset);
+                if (stringChars[i] == 0) { length = i; break; }
+            }
+            return new string(stringChars, 0, length);
+        }
+
+
+        static string ReadAsciiString(IntPtr source, int length, int offset = 0)
+        {
+            char[] stringChars = new char[length];
+            for (int i = 0; i < length; i++)
+            {
+                stringChars[i] = (char)Marshal.ReadByte(source, i + offset);
+                if (stringChars[i] == 0) { length = i; break; }
+            }
+            return new string(stringChars, 0, length);
         }
 
 
@@ -141,6 +383,8 @@ namespace winusbdotnet
          */
         [DllImport("setupapi.dll", SetLastError = true)]
         private extern static IntPtr SetupDiGetClassDevs(ref Guid classGuid, string enumerator, IntPtr hwndParent, UInt32 flags);
+        [DllImport("setupapi.dll", SetLastError = true)]
+        private extern static IntPtr SetupDiGetClassDevs(IntPtr classGuid, string enumerator, IntPtr hwndParent, UInt32 flags);
 
         /*
          BOOL SetupDiEnumDeviceInterfaces(
@@ -153,8 +397,76 @@ namespace winusbdotnet
          */
         [DllImport("setupapi.dll", SetLastError = true)]
         private extern static bool SetupDiEnumDeviceInterfaces(IntPtr deviceInfoSet, IntPtr optDeviceInfoData, ref Guid interfaceClassGuid, UInt32 memberIndex, ref SP_DEVICE_INTERFACE_DATA deviceInterfaceData);
+        [DllImport("setupapi.dll", SetLastError = true)]
+        private extern static bool SetupDiEnumDeviceInterfaces(IntPtr deviceInfoSet, IntPtr optDeviceInfoData, IntPtr interfaceClassGuid, UInt32 memberIndex, ref SP_DEVICE_INTERFACE_DATA deviceInterfaceData);
+        [DllImport("setupapi.dll", SetLastError = true)]
+        private extern static bool SetupDiEnumDeviceInterfaces(IntPtr deviceInfoSet, ref SP_DEVINFO_DATA deviceInfoData, ref Guid interfaceClassGuid, UInt32 memberIndex, ref SP_DEVICE_INTERFACE_DATA deviceInterfaceData);
+        [DllImport("setupapi.dll", SetLastError = true)]
+        private extern static bool SetupDiEnumDeviceInterfaces(IntPtr deviceInfoSet, ref SP_DEVINFO_DATA deviceInfoData, IntPtr interfaceClassGuid, UInt32 memberIndex, ref SP_DEVICE_INTERFACE_DATA deviceInterfaceData);
 
-        
+
+        /*
+        BOOL SetupDiEnumDeviceInfo(
+          _In_   HDEVINFO DeviceInfoSet,
+          _In_   DWORD MemberIndex,
+          _Out_  PSP_DEVINFO_DATA DeviceInfoData
+        );
+         */
+        [DllImport("setupapi.dll", SetLastError = true)]
+        private extern static bool SetupDiEnumDeviceInfo(IntPtr deviceInfoSet, UInt32 memberIndex, ref SP_DEVINFO_DATA deviceInfoData);
+
+        /*
+        HKEY SetupDiOpenDevRegKey(
+          _In_  HDEVINFO DeviceInfoSet,
+          _In_  PSP_DEVINFO_DATA DeviceInfoData,
+          _In_  DWORD Scope,
+          _In_  DWORD HwProfile,
+          _In_  DWORD KeyType,
+          _In_  REGSAM samDesired
+        );
+        */
+        [DllImport("setupapi.dll", SetLastError = true)]
+        private extern static IntPtr SetupDiOpenDevRegKey(IntPtr deviceInfoSet, ref SP_DEVINFO_DATA deviceInfoData, UInt32 scope, UInt32 hwProfile, UInt32 keyType, UInt32 samDesired);
+
+
+        /*
+        LONG WINAPI RegCloseKey(
+        _In_  HKEY hKey
+        );
+        */
+        [DllImport("advapi32.dll", SetLastError = false)]
+        private extern static int RegCloseKey(IntPtr hKey);
+
+
+        /*
+        LONG WINAPI RegGetValue(
+          _In_         HKEY hkey,
+          _In_opt_     LPCTSTR lpSubKey,
+          _In_opt_     LPCTSTR lpValue,
+          _In_opt_     DWORD dwFlags,
+          _Out_opt_    LPDWORD pdwType,
+          _Out_opt_    PVOID pvData,
+          _Inout_opt_  LPDWORD pcbData
+        );
+        */
+        [DllImport("advapi32.dll", SetLastError = false)]
+        private extern static int RegGetValue(IntPtr hKey, string lpSubKey, string lpValue, UInt32 flags, out UInt32 outType, IntPtr outData, ref UInt32 dataLength);
+
+        /*
+        LONG WINAPI RegEnumValue(
+          _In_         HKEY hKey,
+          _In_         DWORD dwIndex,
+          _Out_        LPTSTR lpValueName,
+          _Inout_      LPDWORD lpcchValueName,
+          _Reserved_   LPDWORD lpReserved,
+          _Out_opt_    LPDWORD lpType,
+          _Out_opt_    LPBYTE lpData,
+          _Inout_opt_  LPDWORD lpcbData
+        );
+        */
+        [DllImport("advapi32.dll", SetLastError = false)]
+        private extern static int RegEnumValue(IntPtr hKey, UInt32 index, IntPtr outValue, ref UInt32 valueLen, IntPtr reserved, out UInt32 outType, IntPtr outData, ref UInt32 dataLength);
+
         /*                 
         BOOL SetupDiDestroyDeviceInfoList(
           _In_  HDEVINFO DeviceInfoSet

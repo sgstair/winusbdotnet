@@ -38,8 +38,15 @@ namespace test
             Guid testGuid = new Guid("d2938a49-3191-4b25-ba33-e45f0828ced4");
             Random r = new Random();
 
-            string[] devices = WinUSBDevice.EnumerateDevices(testGuid);
-            foreach(string devicePath in devices)
+            WinUSBEnumeratedDevice[] allDevices = WinUSBDevice.EnumerateAllDevices().ToArray();
+            foreach (WinUSBEnumeratedDevice devicePath in allDevices)
+            {
+                Console.Out.WriteLine(devicePath.ToString());
+            }
+
+
+            WinUSBEnumeratedDevice[] devices = WinUSBDevice.EnumerateDevices(testGuid).ToArray();
+            foreach (WinUSBEnumeratedDevice devicePath in devices)
             {
                 Console.Out.WriteLine(devicePath);
 
