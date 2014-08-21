@@ -106,6 +106,28 @@ namespace winusbdotnet
 
         }
 
+
+        public byte AlternateSetting
+        {
+            get
+            {
+                byte alt;
+                if (!NativeMethods.WinUsb_GetCurrentAlternateSetting(WinusbHandle, out alt))
+                {
+                    throw new Exception("GetCurrentAlternateSetting failed. " + (new Win32Exception()).ToString());
+                }
+                return alt;
+            }
+            set
+            {
+                if (!NativeMethods.WinUsb_SetCurrentAlternateSetting(WinusbHandle, value))
+                {
+                    throw new Exception("SetCurrentAlternateSetting failed. " + (new Win32Exception()).ToString());
+                }
+            }
+        }
+
+
         public void Dispose()
         {
             Stopping = true;

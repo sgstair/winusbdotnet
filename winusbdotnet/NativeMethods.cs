@@ -15,6 +15,9 @@ namespace winusbdotnet
     {
         public string DevicePath { get; set; }
         public Guid InterfaceGuid { get; set; }
+        public string DeviceDescription { get; set; }
+        public string Manufacturer { get; set; }
+        public string FriendlyName { get; set; }
     }
 
     internal class NativeMethods
@@ -36,12 +39,28 @@ namespace winusbdotnet
             public IntPtr reserved;
         }
 
+        private struct DEVPROPKEY
+        {
+            public Guid fmtId;
+            public UInt32 pId;
+
+
+            //DEFINE_DEVPROPKEY(DEVPKEY_Device_DeviceDesc,             0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 2);     // DEVPROP_TYPE_STRING
+            //DEFINE_DEVPROPKEY(DEVPKEY_Device_Manufacturer,           0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 13);    // DEVPROP_TYPE_STRING
+            //DEFINE_DEVPROPKEY(DEVPKEY_Device_FriendlyName,           0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 14);    // DEVPROP_TYPE_STRING
+
+            public static DEVPROPKEY Device_DeviceDesc { get { return new DEVPROPKEY() { fmtId = new Guid("a45c254e-df1c-4efd-8020-67d146a850e0"), pId = 2 }; } }
+            public static DEVPROPKEY Device_Manufacturer { get { return new DEVPROPKEY() { fmtId = new Guid("a45c254e-df1c-4efd-8020-67d146a850e0"), pId = 13 }; } }
+            public static DEVPROPKEY Device_FriendlyName { get { return new DEVPROPKEY() { fmtId = new Guid("a45c254e-df1c-4efd-8020-67d146a850e0"), pId = 14 }; } }
+        }
+
         private const UInt32 DIGCF_PRESENT = 2;
         private const UInt32 DIGCF_ALLCLASSES = 4;
         private const UInt32 DIGCF_DEVICEINTERFACE = 0x10;
 
         private static IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
 
+        private const int ERROR_NOT_FOUND = 1168;
         private const int ERROR_FILE_NOT_FOUND = 2;
         private const int ERROR_NO_MORE_ITEMS = 259;
         private const int ERROR_INSUFFICIENT_BUFFER = 122;
@@ -100,8 +119,17 @@ namespace winusbdotnet
                     }
 
                     // This is a valid interface, retrieve its path
-                    outputPaths.Add(new EnumeratedDevice() { DevicePath = RetrieveDeviceInstancePath(devInfo, interfaceData), InterfaceGuid = deviceInterface });
+                    EnumeratedDevice dev = new EnumeratedDevice() { DevicePath = RetrieveDeviceInstancePath(devInfo, interfaceData), InterfaceGuid = deviceInterface };
 
+
+                    // Todo: debug. Not working correctly.
+                    /*
+                    dev.DeviceDescription = RetrieveDeviceInstancePropertyString(devInfo, interfaceData, DEVPROPKEY.Device_DeviceDesc);
+                    dev.Manufacturer = RetrieveDeviceInstancePropertyString(devInfo, interfaceData, DEVPROPKEY.Device_Manufacturer);
+                    dev.FriendlyName = RetrieveDeviceInstancePropertyString(devInfo, interfaceData, DEVPROPKEY.Device_FriendlyName);
+                    */
+
+                    outputPaths.Add(dev);
                 }
             }
             finally
@@ -145,7 +173,6 @@ namespace winusbdotnet
             try
             {
                 uint deviceIndex = 0;
-                SP_DEVICE_INTERFACE_DATA interfaceData = new SP_DEVICE_INTERFACE_DATA();
                 SP_DEVINFO_DATA devInfoData = new SP_DEVINFO_DATA();
 
                 bool success = true;
@@ -254,8 +281,7 @@ namespace winusbdotnet
             IntPtr hKey = SetupDiOpenDevRegKey(devInfo, ref devInfoData, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
             if (hKey == INVALID_HANDLE_VALUE)
             {
-                return null;
-                throw new Exception("SetupDiGetClassDevs failed. " + (new Win32Exception()).ToString());
+                return null; // Ignore failures, probably the key doesn't exist.
             }
 
             try
@@ -265,7 +291,7 @@ namespace winusbdotnet
                 long output = RegGetValue(hKey, null, deviceProperty, RRF_RT_REG_SZ | RRF_RT_REG_MULTI_SZ, out outType, IntPtr.Zero, ref outLength);
                 if(output == ERROR_FILE_NOT_FOUND)
                 {
-                    return null;
+                    return null; // Key not present, don't continue.
                 }
                 if (output != 0)
                 {
@@ -310,11 +336,11 @@ namespace winusbdotnet
 
             if (!SetupDiGetDeviceInterfaceDetail(devInfo, ref interfaceData, IntPtr.Zero, 0, ref requiredLength, IntPtr.Zero))
             {
+                int err = Marshal.GetLastWin32Error();
+
+                if (err != ERROR_INSUFFICIENT_BUFFER)
                 {
-                    if (Marshal.GetLastWin32Error() != ERROR_INSUFFICIENT_BUFFER)
-                    {
-                        throw new Exception("SetupDiGetDeviceInterfaceDetail failed (determining length) " + (new Win32Exception()).ToString());
-                    }
+                    throw new Exception("SetupDiGetDeviceInterfaceDetail failed (determining length) " + (new Win32Exception()).ToString());
                 }
             }
 
@@ -348,6 +374,55 @@ namespace winusbdotnet
                 Marshal.FreeHGlobal(mem);
             }
         }
+
+        static string RetrieveDeviceInstancePropertyString(IntPtr devInfo, SP_DEVICE_INTERFACE_DATA interfaceData, DEVPROPKEY property)
+        {
+            // This is a valid interface, retrieve its path
+            UInt32 requiredLength = 0;
+            UInt32 propertyType;
+
+            if (!SetupDiGetDeviceInterfaceProperty(devInfo, ref interfaceData, ref property, out propertyType, IntPtr.Zero, 0, out requiredLength, 0))
+            {
+                int err = Marshal.GetLastWin32Error();
+                if (err == ERROR_NOT_FOUND)
+                {
+                    return null;
+                }
+
+                if (err != ERROR_INSUFFICIENT_BUFFER)
+                {
+                    throw new Exception("SetupDiGetDeviceInterfaceProperty failed (determining length) " + (new Win32Exception()).ToString());
+                }
+
+            }
+
+            UInt32 actualLength = requiredLength;
+
+
+            IntPtr mem = Marshal.AllocHGlobal((int)requiredLength);
+            try
+            {
+                Marshal.WriteInt32(mem, 6); // set fake size in fake structure
+
+                if (!SetupDiGetDeviceInterfaceProperty(devInfo, ref interfaceData, ref property, out propertyType, mem, requiredLength, out actualLength, 0))
+                {
+                    throw new Exception("SetupDiGetDeviceInterfaceProperty failed (retrieving data) " + (new Win32Exception()).ToString());
+                }
+
+                // Convert TCHAR string into chars.
+                if (actualLength > requiredLength)
+                {
+                    throw new Exception("Consistency issue: Actual length should not be larger than buffer size.");
+                }
+
+                return ReadString(mem, (int)((actualLength) / 2));
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(mem);
+            }
+        }
+
 
         static string ReadString(IntPtr source, int length, int offset = 0)
         {
@@ -428,6 +503,32 @@ namespace winusbdotnet
         [DllImport("setupapi.dll", SetLastError = true)]
         private extern static IntPtr SetupDiOpenDevRegKey(IntPtr deviceInfoSet, ref SP_DEVINFO_DATA deviceInfoData, UInt32 scope, UInt32 hwProfile, UInt32 keyType, UInt32 samDesired);
 
+        /*
+        BOOL SetupDiGetDeviceInterfaceProperty(
+          _In_       HDEVINFO DeviceInfoSet,
+          _In_       PSP_DEVICE_INTERFACE_DATA DeviceInterfaceData,
+          _In_       const DEVPROPKEY *PropertyKey,
+          _Out_      DEVPROPTYPE *PropertyType,
+          _Out_      PBYTE PropertyBuffer,
+          _In_       DWORD PropertyBufferSize,
+          _Out_opt_  PDWORD RequiredSize,
+          _In_       DWORD Flags
+        );
+        */
+        [DllImport("setupapi.dll", SetLastError = true, CharSet=CharSet.Unicode, EntryPoint="SetupDiGetDeviceInterfacePropertyW")]
+        private extern static bool SetupDiGetDeviceInterfaceProperty(IntPtr deviceInfoSet, ref SP_DEVICE_INTERFACE_DATA deviceInterfaceDataa, ref DEVPROPKEY propertyKey, out UInt32 propertyType, IntPtr outPropertyData, UInt32 dataBufferLength, out UInt32 requredBufferLength, UInt32 flags);
+
+
+        /*
+        BOOL SetupDiGetDevicePropertyKeys(
+          _In_       HDEVINFO DeviceInfoSet,
+          _In_       PSP_DEVINFO_DATA DeviceInfoData,
+          _Out_opt_  DEVPROPKEY *PropertyKeyArray,
+          _In_       DWORD PropertyKeyCount,
+          _Out_opt_  PDWORD RequiredPropertyKeyCount,
+          _In_       DWORD Flags
+        );
+        */
 
         /*
         LONG WINAPI RegCloseKey(
@@ -621,6 +722,51 @@ namespace winusbdotnet
         public extern static bool WinUsb_FlushPipe(IntPtr interfaceHandle, byte pipeId);
 
 
+        /*
+        BOOL __stdcall WinUsb_GetDescriptor(
+          _In_   WINUSB_INTERFACE_HANDLE InterfaceHandle,
+          _In_   UCHAR DescriptorType,
+          _In_   UCHAR Index,
+          _In_   USHORT LanguageID,
+          _Out_  PUCHAR Buffer,
+          _In_   ULONG BufferLength,
+          _Out_  PULONG LengthTransferred
+        );
+        */
+
+
+        /*
+        BOOL __stdcall WinUsb_QueryInterfaceSettings(
+          _In_   WINUSB_INTERFACE_HANDLE InterfaceHandle,
+          _In_   UCHAR AlternateSettingNumber,
+          _Out_  PUSB_INTERFACE_DESCRIPTOR UsbAltInterfaceDescriptor
+        );
+        */
+
+        /*
+        BOOL __stdcall WinUsb_GetCurrentAlternateSetting(
+          _In_   WINUSB_INTERFACE_HANDLE InterfaceHandle,
+          _Out_  PUCHAR AlternateSetting
+        );
+         */
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_GetCurrentAlternateSetting(IntPtr interfaceHandle, out byte alternateSetting);
+
+
+        /*
+        BOOL __stdcall WinUsb_SetCurrentAlternateSetting(
+          _In_  WINUSB_INTERFACE_HANDLE InterfaceHandle,
+          _In_  UCHAR AlternateSetting
+        );
+        */
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_SetCurrentAlternateSetting(IntPtr interfaceHandle, byte alternateSetting);
+
+
+
+
+
+
     }
 
     public struct NativeOverlapped
@@ -662,6 +808,7 @@ namespace winusbdotnet
         MAXIMUM_TRANSFER_SIZE = 8,
         RESET_PIPE_ON_RESUME = 9
     }
+
 
 
 }
