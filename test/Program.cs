@@ -90,6 +90,27 @@ namespace test
             }
 
             Console.Out.WriteLine("{0} device{1}", devices.Length, devices.Length==1?"":"s");
+
+
+            WinUSBEnumeratedDevice[] fadecandies = Fadecandy.Enumerate().ToArray();
+            if(fadecandies.Length > 0)
+            {
+                Fadecandy fc = new Fadecandy(fadecandies[0]);
+
+                double t = 0;
+                while(true)
+                {
+                    fc.Pixels[0].R = Math.Sin(t) * 0.2 + 0.2;
+                    fc.Pixels[64].G = Math.Sin(t) * 0.2 + 0.2;
+                    fc.FlushRange(0, 65);
+
+                    t += 0.02;
+                    System.Threading.Thread.Sleep(20);
+                }
+                
+
+            }
+
         }
     }
 }

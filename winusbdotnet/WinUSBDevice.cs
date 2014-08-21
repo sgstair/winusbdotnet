@@ -42,16 +42,20 @@ namespace winusbdotnet
         {
             DevicePath = enumDev.DevicePath;
             EnumeratedData = enumDev;
-            Match m = Regex.Match(DevicePath, "vid_(....)");
+            Match m = Regex.Match(DevicePath, @"vid_([\da-f]{4})");
             if (m.Success) { VendorID = Convert.ToUInt16(m.Groups[1].Value, 16); }
-            m = Regex.Match(DevicePath, "pid_(....)");
+            m = Regex.Match(DevicePath, @"pid_([\da-f]{4})");
             if (m.Success) { ProductID = Convert.ToUInt16(m.Groups[1].Value, 16); }
+            m = Regex.Match(DevicePath, @"mi_([\da-f]{2})");
+            if (m.Success) { UsbInterface = Convert.ToByte(m.Groups[1].Value, 16); }
         }
 
         public string Path { get { return DevicePath; } }
         public UInt16 VendorID { get; private set; }
         public UInt16 ProductID { get; private set; }
+        public Byte UsbInterface { get; private set; }
         public Guid InterfaceGuid { get { return EnumeratedData.InterfaceGuid; } }
+
 
         public override string ToString()
         {
@@ -66,7 +70,7 @@ namespace winusbdotnet
             foreach (EnumeratedDevice devicePath in NativeMethods.EnumerateDevicesByInterface(deviceInterfaceGuid))
             {
                 yield return new WinUSBEnumeratedDevice(devicePath);
-        }
+            }
         }
 
         public static IEnumerable<WinUSBEnumeratedDevice> EnumerateAllDevices()
