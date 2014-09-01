@@ -54,8 +54,8 @@ namespace test
 
                 // Try a data test. Test board just has OUT 3 looped back into IN 3
                 // Set pipe timeouts to avoid hanging forever.
-                test.SetPipePolicy(0x03, WinUsbPipePolicy.PIPE_TRANSFER_TIEMOUT, 100);
-                test.SetPipePolicy(0x83, WinUsbPipePolicy.PIPE_TRANSFER_TIEMOUT, 100);
+                test.SetPipePolicy(0x03, WinUsbPipePolicy.PIPE_TRANSFER_TIMEOUT, 100);
+                test.SetPipePolicy(0x83, WinUsbPipePolicy.PIPE_TRANSFER_TIMEOUT, 100);
 
                 // Send some junk via OUT 3
                 byte[] data = new byte[128];

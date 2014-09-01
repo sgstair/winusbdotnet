@@ -135,18 +135,21 @@ namespace winusbdotnet
         public void Dispose()
         {
             Stopping = true;
+
+            // Close handles which will cause background theads to stop working & exit.
+            if (WinusbHandle != IntPtr.Zero)
+            {
+                NativeMethods.WinUsb_Free(WinusbHandle);
+                WinusbHandle = IntPtr.Zero;
+            }
+            deviceHandle.Close();
+
             // Wait for pipe threads to quit
             foreach(BufferedPipeThread th in bufferedPipes.Values)
             {
                 while (!th.Stopped) Thread.Sleep(5);
             }
 
-            if(WinusbHandle != IntPtr.Zero)
-            {
-                NativeMethods.WinUsb_Free(WinusbHandle);
-                WinusbHandle = IntPtr.Zero;
-            }
-            deviceHandle.Close();
             GC.SuppressFinalize(this);
         }
 
@@ -382,6 +385,8 @@ namespace winusbdotnet
         WinUSBDevice Device;
         byte DevicePipeId;
 
+        private long TotalReceived;
+
         private int QueuedLength;
         private Queue<byte[]> ReceivedData;
         private int SkipFirstBytes;
@@ -584,6 +589,7 @@ namespace winusbdotnet
                         {
                             ReceivedData.Enqueue(data);
                             QueuedLength += data.Length;
+                            TotalReceived += data.Length;
                         }
                         ThreadPool.QueueUserWorkItem(RaiseNewData);
                     }
