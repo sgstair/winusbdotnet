@@ -48,6 +48,32 @@ namespace winusbdotnet
         public byte RByte { get { return ConvertValue(R); } }
         public byte GByte { get { return ConvertValue(G); } }
         public byte BByte { get { return ConvertValue(B); } }
+
+        public RGBColor(double r, double g, double b)
+        {
+            R = r; G = g; B = b;
+        }
+
+        public static RGBColor FromHSV(double h, double s, double v)
+        {
+            double r, g, b;
+            r = g = b = 0;
+            if (h < 0.5) r = 1 - h * 3; else r = h * 3 - 2;
+            g = 1 - Math.Abs(h * 3 - 1);
+            b = 1 - Math.Abs(h * 3 - 2);
+            if (r > 1) r = 1;
+            if (r < 0) r = 0;
+            if (g > 1) g = 1;
+            if (g < 0) g = 0;
+            if (b > 1) b = 1;
+            if (b < 0) b = 0;
+
+            r = (r * s + (1 - s)) * v;
+            g = (g * s + (1 - s)) * v;
+            b = (b * s + (1 - s)) * v;
+
+            return new RGBColor(r, g, b);
+        }
     }
 
     public class Fadecandy : IDisposable
@@ -115,8 +141,8 @@ namespace winusbdotnet
                 for (int i = 0; i < pixelsPerChunk; i++)
                 {
                     if (i + offset > 511) continue;
-                    data[1 + i * 3] = Pixels[i + offset].GByte; // not sure if just the LEDs I'm testing with, but R/G seem reversed from the spec.
-                    data[2 + i * 3] = Pixels[i + offset].RByte; // Confirm with other LED strips later.
+                    data[1 + i * 3] = Pixels[i + offset].RByte; // Some weird LEDs I have have R/G switched. Odd.
+                    data[2 + i * 3] = Pixels[i + offset].GByte;
                     data[3 + i * 3] = Pixels[i + offset].BByte;
                 }
                 BaseDevice.WritePipe(DataPipe, data);
