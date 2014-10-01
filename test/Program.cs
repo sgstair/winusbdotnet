@@ -100,12 +100,15 @@ namespace test
                 double t = 0;
                 while(true)
                 {
-                    fc.Pixels[0].R = Math.Sin(t) * 0.2 + 0.2;
+                    for (int i = 0; i < 24; i++)
+                    {
+                        fc.Pixels[i].R = Math.Sin(t ) * 0.2 + 0.2;
+                    }
                     fc.Pixels[64].G = Math.Sin(t) * 0.2 + 0.2;
                     fc.FlushRange(0, 65);
 
-                    t += 0.02;
-                    System.Threading.Thread.Sleep(20);
+                    t += 0.01;
+                    System.Threading.Thread.Sleep(10);
                 }
                 
 
