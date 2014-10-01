@@ -41,6 +41,7 @@
   <ItemGroup>
     <Compile Include="Fadecandy.cs" />
     <Compile Include="NativeMethods.cs" />
+    <Compile Include="RgbButton.cs" />
     <Compile Include="WinUSBDevice.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

@@ -111,6 +111,37 @@ namespace test
 
             }
 
+
+            WinUSBEnumeratedDevice[] rgbbuttons = RgbButton.Enumerate().ToArray();
+            if (rgbbuttons.Length > 0)
+            {
+                RgbButton rb = new RgbButton(rgbbuttons[0]);
+
+#if false
+                { // Put device into programming mode.
+                    rb.EnterProgrammingMode();
+                    return;
+                }
+#endif
+
+                double t = 0;
+                while (true)
+                {
+                    rb.ButtonColors[0].G = Math.Sin(t) * 0.2 + 0.2;
+                    rb.ButtonColors[1].R = Math.Sin(t) * 0.2 + 0.2;
+                    rb.ButtonColors[2].G = 0.5 - rb.ButtonValues[0] / 256.0;
+                    rb.ButtonColors[2].R = 0.5 - rb.ButtonValues[1] / 256.0;
+                    rb.ButtonColors[2].B = 0.5 - rb.ButtonValues[3] / 256.0;
+                    rb.ButtonColors[3].B = (rb.DataCount & 1023) / 2048.0;
+                    rb.SendButtonColors();
+
+                    t += 0.02;
+                    System.Threading.Thread.Sleep(20);
+                }
+
+
+            }
+
         }
     }
 }

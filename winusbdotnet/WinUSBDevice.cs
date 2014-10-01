@@ -396,6 +396,7 @@ namespace winusbdotnet
 
         public BufferedPipeThread(WinUSBDevice dev, byte pipeId)
         {
+            EventConcurrency = new Semaphore(3, 3);
             Device = dev;
             DevicePipeId = pipeId;
             QueuedLength = 0;
@@ -607,12 +608,25 @@ namespace winusbdotnet
 
         public event WinUSBDevice.NewDataCallback NewDataEvent;
 
+        Semaphore EventConcurrency;
+
         void RaiseNewData(object context)
         {
             WinUSBDevice.NewDataCallback cb = NewDataEvent;
             if (cb != null)
             {
-                cb();
+                if(EventConcurrency.WaitOne(0)) // Prevent requests from stacking up; Don't issue new events if there are several in flight
+                {
+                    try
+                    {
+                        cb();
+                    }
+                    finally
+                    {
+                        EventConcurrency.Release();
+                    }
+
+                }
             }
         }
 
