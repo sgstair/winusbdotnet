@@ -345,16 +345,19 @@ namespace winusbdotnet
             }
 
             UInt32 actualLength = requiredLength;
+            Int32 structLen = 6;
+            if (IntPtr.Size == 8) structLen = 8; // Compensate for 64bit struct packing.
 
-            if (requiredLength < 6)
+            if (requiredLength < structLen)
             {
                 throw new Exception("Consistency issue: Required memory size should be larger");
             }
 
             IntPtr mem = Marshal.AllocHGlobal((int)requiredLength);
+            
             try
             {
-                Marshal.WriteInt32(mem, 6); // set fake size in fake structure
+                Marshal.WriteInt32(mem, structLen); // set fake size in fake structure
 
                 if (!SetupDiGetDeviceInterfaceDetail(devInfo, ref interfaceData, mem, requiredLength, ref actualLength, IntPtr.Zero))
                 {
