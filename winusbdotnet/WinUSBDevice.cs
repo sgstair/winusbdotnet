@@ -200,6 +200,7 @@ namespace winusbdotnet
             }
         }
 
+
         public void BufferedReadNotifyPipe(byte pipeId, NewDataCallback callback)
         {
             if (!bufferedPipes.ContainsKey(pipeId))
@@ -209,48 +210,64 @@ namespace winusbdotnet
             bufferedPipes[pipeId].NewDataEvent += callback;
         }
 
+        BufferedPipeThread GetInterface(byte pipeId, bool packetInterface)
+        {
+            if (!bufferedPipes.ContainsKey(pipeId))
+            {
+                throw new Exception("Pipe not enabled for buffered reads!");
+            }
+            BufferedPipeThread th = bufferedPipes[pipeId];
+            if (!th.InterfaceBound)
+            {
+                th.InterfaceBound = true;
+                th.PacketInterface = packetInterface;
+            }
+            else
+            {
+                if (th.PacketInterface != packetInterface)
+                {
+                    string message = string.Format("Pipe is already bound as a {0} interface - cannot bind to both Packet and Byte interfaces",
+                                                   packetInterface ? "Byte" : "Packet");
+                    throw new Exception(message);
+                }
+            }
+            return th;
+        }
+        public IPipeByteReader BufferedGetByteInterface(byte pipeId)
+        {
+            return GetInterface(pipeId, false);
+        }
+
+        public IPipeByteReader BufferedGetPacketInterface(byte pipeId)
+        {
+            return GetInterface(pipeId, true);
+        }
+
+
 
         public byte[] BufferedReadPipe(byte pipeId, int byteCount)
         {
-            if (!bufferedPipes.ContainsKey(pipeId))
-            {
-                throw new Exception("Pipe not enabled for buffered reads!");
-            }
-            return bufferedPipes[pipeId].ReceiveBytes(byteCount);
+            return BufferedGetByteInterface(pipeId).ReceiveBytes(byteCount);
         }
+
         public byte[] BufferedPeekPipe(byte pipeId, int byteCount)
         {
-            if (!bufferedPipes.ContainsKey(pipeId))
-            {
-                throw new Exception("Pipe not enabled for buffered reads!");
-            }
-            return bufferedPipes[pipeId].PeekBytes(byteCount);
+            return BufferedGetByteInterface(pipeId).PeekBytes(byteCount);
         }
 
         public void BufferedSkipBytesPipe(byte pipeId, int byteCount)
         {
-            if (!bufferedPipes.ContainsKey(pipeId))
-            {
-                throw new Exception("Pipe not enabled for buffered reads!");
-            }
-            bufferedPipes[pipeId].SkipBytes(byteCount);
+            BufferedGetByteInterface(pipeId).SkipBytes(byteCount);
         }
 
         public byte[] BufferedReadExactPipe(byte pipeId, int byteCount)
         {
-            if (!bufferedPipes.ContainsKey(pipeId))
-            {
-                throw new Exception("Pipe not enabled for buffered reads!");
-            }
-            return bufferedPipes[pipeId].ReceiveExactBytes(byteCount);
+            return BufferedGetByteInterface(pipeId).ReceiveExactBytes(byteCount);
         }
+
         public int BufferedByteCountPipe(byte pipeId)
         {
-            if (!bufferedPipes.ContainsKey(pipeId))
-            {
-                throw new Exception("Pipe not enabled for buffered reads!");
-            }
-            return bufferedPipes[pipeId].QueuedDataLength;
+            return BufferedGetByteInterface(pipeId).QueuedDataLength;
         }
 
 
@@ -324,7 +341,7 @@ namespace winusbdotnet
                 {
                     // This was a pipe timeout. Return an empty byte array to indicate this case.
                     System.Diagnostics.Debug.WriteLine("Timed out");
-                    return new byte[0];
+                    return null;
                 }
                 throw new Exception("ReadPipe's overlapped result failed. " + (new Win32Exception()).ToString());
             }
@@ -398,9 +415,79 @@ namespace winusbdotnet
 
 
 
-    // Naive and non-performant version to get something running quickly.
-    internal class BufferedPipeThread
+    public interface IPipeByteReader
     {
+        /// <summary>
+        /// Receive a number of bytes from the incoming data stream.
+        /// If there are not enough bytes available, only the available bytes will be returned.
+        /// Returns immediately.
+        /// </summary>
+        /// <param name="count">Number of bytes to request</param>
+        /// <returns>Byte data from the USB pipe</returns>
+        byte[] ReceiveBytes(int count);
+
+        /// <summary>
+        /// Receive a number of bytes from the incoming data stream, but don't remove them from the queue.
+        /// If there are not enough bytes available, only the available bytes will be returned.
+        /// Returns immediately.
+        /// </summary>
+        /// <param name="count">Number of bytes to request</param>
+        /// <returns>Byte data from the USB pipe</returns>
+        byte[] PeekBytes(int count);
+
+        /// <summary>
+        /// Receive a specific number of bytes from the incoming data stream.
+        /// This call will block until the requested bytes are available, or will eventually throw on timeout.
+        /// </summary>
+        /// <param name="count">Number of bytes to request</param>
+        /// <returns>Byte data from the USB pipe</returns>
+        byte[] ReceiveExactBytes(int count);
+
+        /// <summary>
+        /// Drop bytes from the incoming data stream without reading them.
+        /// If you try to drop more bytes than are available, the buffer will be cleared.
+        /// Returns immediately.
+        /// </summary>
+        /// <param name="count">Number of bytes to drop.</param>
+        void SkipBytes(int count);
+
+        /// <summary>
+        /// Current number of bytes that are queued and available to read.
+        /// </summary>
+        int QueuedDataLength { get; }
+    }
+
+    public interface IPipePacketReader
+    {
+        /// <summary>
+        /// Number of received packets that can be read.
+        /// </summary>
+        int QueuedPackets { get; }
+
+        /// <summary>
+        /// Retrieve the next packet, but do not remove it from the buffer.
+        /// Warning: If you modify the returned array, the modifications will be present in future calls to Peek/Dequeue for this pacekt.
+        /// </summary>
+        /// <returns>The contents of the next packet in the receive queue</returns>
+        byte[] PeekPacket();
+
+        /// <summary>
+        /// Retrieve the next packet from the receive queue
+        /// </summary>
+        /// <returns>The contents of the next packet in the receive queue</returns>
+        byte[] DequeuePacket();
+    }
+
+
+    // Background thread to receive data from pipes.
+    // Provides two data access mechanisms which are mutually exclusive: Packet level and byte level.
+    internal class BufferedPipeThread : IPipeByteReader, IPipePacketReader
+    {
+        // Logic to enforce interface exclucivity is in WinUSBDevice
+        public bool InterfaceBound; // Has the interface been bound?
+        public bool PacketInterface; // Are we using the packet reader interface?
+
+
         Thread PipeThread;
         WinUSBDevice Device;
         byte DevicePipeId;
@@ -444,6 +531,26 @@ namespace winusbdotnet
 
             PipeThread.Start();
         }
+
+        //
+        // Packet Reader members
+        //
+
+        public int QueuedPackets { get { lock (this) { return ReceivedData.Count; } } }
+
+        public byte[] PeekPacket()
+        {
+            return ReceivedData.Peek();
+        }
+
+        public byte[] DequeuePacket()
+        {
+            return ReceivedData.Dequeue();
+        }
+
+        //
+        // Byte Reader members
+        //
 
         public int QueuedDataLength { get { lock (this) { return QueuedLength;  } } }
 
@@ -522,6 +629,42 @@ namespace winusbdotnet
             return output;
         }
 
+        public void SkipBytes(int count)
+        {
+            lock (this)
+            {
+                int queue = QueuedLength;
+                if (queue < count)
+                    throw new ArgumentException("count must be less than the data length");
+
+                int copied = 0;
+                while (copied < count)
+                {
+                    byte[] firstData = ReceivedData.Peek();
+                    int available = firstData.Length - SkipFirstBytes;
+                    int toCopy = count - copied;
+                    if (toCopy > available) toCopy = available;
+
+                    if (toCopy == available)
+                    {
+                        ReceivedData.Dequeue();
+                        SkipFirstBytes = 0;
+                    }
+                    else
+                    {
+                        SkipFirstBytes += toCopy;
+                    }
+
+                    copied += toCopy;
+                    QueuedLength -= toCopy;
+                }
+            }
+        }
+
+        //
+        // Internal functionality
+        //
+
         // Must be called under lock with enough bytes in the buffer.
         void CopyReceiveBytes(byte[] target, int start, int count)
         {
@@ -533,7 +676,7 @@ namespace winusbdotnet
                 int toCopy = count - copied;
                 if (toCopy > available) toCopy = available;
 
-                Array.Copy(firstData, SkipFirstBytes, target, start, toCopy);
+                Array.Copy(firstData, SkipFirstBytes, target, start, toCopy); 
 
                 if(toCopy == available)
                 {
@@ -577,37 +720,7 @@ namespace winusbdotnet
             }
         }
 
-        public void SkipBytes(int count)
-        {
-            lock (this)
-            {
-                int queue = QueuedLength;
-                if (queue < count)
-                    throw new ArgumentException("count must be less than the data length");
 
-                int copied = 0;
-                while (copied < count)
-                {
-                    byte[] firstData = ReceivedData.Peek();
-                    int available = firstData.Length - SkipFirstBytes;
-                    int toCopy = count - copied;
-                    if (toCopy > available) toCopy = available;
-
-                    if (toCopy == available)
-                    {
-                        ReceivedData.Dequeue();
-                        SkipFirstBytes = 0;
-                    }
-                    else
-                    {
-                        SkipFirstBytes += toCopy;
-                    }
-
-                    copied += toCopy;
-                    QueuedLength -= toCopy;
-                }
-            }
-        }
 
 
         void ThreadFunc(object context)
@@ -633,8 +746,8 @@ namespace winusbdotnet
                             {
                                 byte[] data = Device.EndReadPipe(buf);
                                 PendingBuffers.Dequeue();
-                                if (data.Length > 0)
-                                {   // Length of zero is a timeout condition.
+                                if (data != null)
+                                {   // null is a timeout condition.
                                     receivedData.Enqueue(data);
                                 }
                                 Device.BeginReadPipe(DevicePipeId, buf);
