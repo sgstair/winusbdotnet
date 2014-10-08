@@ -36,6 +36,12 @@ namespace winusbdotnet
             EnableButtonData();
         }
 
+        public void Close()
+        {
+            BaseDevice.Close();
+            BaseDevice = null;
+        }
+
         void NewDataCallback()
         {
             lock (this) // Prevent concurrent execution
