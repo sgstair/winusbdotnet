@@ -96,17 +96,17 @@ namespace winusbdotnet
                 NativeMethods.FILE_SHARE_READ | NativeMethods.FILE_SHARE_WRITE, IntPtr.Zero, NativeMethods.OPEN_EXISTING,
                 NativeMethods.FILE_ATTRIBUTE_NORMAL | NativeMethods.FILE_FLAG_OVERLAPPED, IntPtr.Zero);
 
-            if(deviceHandle.IsInvalid)
+            if (deviceHandle.IsInvalid)
             {
                 throw new Exception("Could not create file. " + (new Win32Exception()).ToString());
             }
 
-            if(!NativeMethods.WinUsb_Initialize(deviceHandle, out WinusbHandle))
+            if (!NativeMethods.WinUsb_Initialize(deviceHandle, out WinusbHandle))
             {
                 WinusbHandle = IntPtr.Zero;
                 throw new Exception("Could not Initialize WinUSB. " + (new Win32Exception()).ToString());
             }
-            
+
 
         }
 
@@ -145,7 +145,7 @@ namespace winusbdotnet
             deviceHandle.Close();
 
             // Wait for pipe threads to quit
-            foreach(BufferedPipeThread th in bufferedPipes.Values)
+            foreach (BufferedPipeThread th in bufferedPipes.Values)
             {
                 while (!th.Stopped) Thread.Sleep(5);
             }
@@ -171,7 +171,7 @@ namespace winusbdotnet
             UInt32[] data = new UInt32[1];
             UInt32 length = 4;
 
-            if(!NativeMethods.WinUsb_GetPipePolicy(WinusbHandle, pipeId, (uint)policyType, ref length, data))
+            if (!NativeMethods.WinUsb_GetPipePolicy(WinusbHandle, pipeId, (uint)policyType, ref length, data))
             {
                 throw new Exception("GetPipePolicy failed. " + (new Win32Exception()).ToString());
             }
@@ -192,11 +192,11 @@ namespace winusbdotnet
         }
 
         Dictionary<byte, BufferedPipeThread> bufferedPipes = new Dictionary<byte, BufferedPipeThread>();
-        public void EnableBufferedRead(byte pipeId)
+        public void EnableBufferedRead(byte pipeId, int bufferCount = 4)
         {
-            if(!bufferedPipes.ContainsKey(pipeId))
+            if (!bufferedPipes.ContainsKey(pipeId))
             {
-                bufferedPipes.Add(pipeId, new BufferedPipeThread(this, pipeId));
+                bufferedPipes.Add(pipeId, new BufferedPipeThread(this, pipeId, bufferCount));
             }
         }
 
@@ -261,7 +261,7 @@ namespace winusbdotnet
             while (read < byteCount)
             {
                 byte[] data = ReadPipe(pipeId, byteCount - read);
-                if(data.Length  == 0)
+                if (data.Length == 0)
                 {
                     // Timeout happened in ReadPipe.
                     throw new Exception("Timed out while trying to read data.");
@@ -277,106 +277,126 @@ namespace winusbdotnet
             return accumulate;
         }
 
-        // Hacky synchronous read
+        // basic synchronous read
         public byte[] ReadPipe(byte pipeId, int byteCount)
         {
 
             byte[] data = new byte[byteCount];
 
-            //using (Overlapped ov = new Overlapped())
+            UInt32 transferSize = 0;
+            if (!NativeMethods.WinUsb_ReadPipe(WinusbHandle, pipeId, data, (uint)byteCount, ref transferSize, IntPtr.Zero))
             {
-                /*
-                if (!NativeMethods.WinUsb_ReadPipe(WinusbHandle, pipeId, data, (uint)byteCount, IntPtr.Zero, ref ov.OverlappedStruct))
+                if (Marshal.GetLastWin32Error() == NativeMethods.ERROR_SEM_TIMEOUT)
                 {
-                    if (Marshal.GetLastWin32Error() != NativeMethods.ERROR_IO_PENDING)
-                    {
-                        throw new Exception("ReadPipe failed. " + (new Win32Exception()).ToString());
-                    }
-                    // Wait for IO to complete.
-                    //ov.WaitEvent.WaitOne();
+                    // This was a pipe timeout. Return an empty byte array to indicate this case.
+                    return new byte[0];
                 }
-                UInt32 transferSize;
+                throw new Exception("ReadPipe failed. " + (new Win32Exception()).ToString());
+            }
 
-                if (!NativeMethods.WinUsb_GetOverlappedResult(WinusbHandle, ref ov.OverlappedStruct, out transferSize, true))
-                {
-                    if(Marshal.GetLastWin32Error() == NativeMethods.ERROR_SEM_TIMEOUT)
-                    { 
-                        // This was a pipe timeout. Return an empty byte array to indicate this case.
-                        System.Diagnostics.Debug.WriteLine("Timed out");
-                        return new byte[0];
-                    }
-                    throw new Exception("ReadPipe's overlapped result failed. " + (new Win32Exception()).ToString());
-                }
-                 * 
-                 * */
+            byte[] newdata = new byte[transferSize];
+            Array.Copy(data, newdata, transferSize);
+            return newdata;
 
-                UInt32 transferSize = 0;
-                if (!NativeMethods.WinUsb_ReadPipe(WinusbHandle, pipeId, data, (uint)byteCount, ref transferSize, IntPtr.Zero))
+        }
+
+        // Asynchronous read bits, only for use with buffered reader for now.
+        internal void BeginReadPipe(byte pipeId, QueuedBuffer buffer)
+        {
+            buffer.Overlapped.WaitEvent.Reset();
+
+            if (!NativeMethods.WinUsb_ReadPipe(WinusbHandle, pipeId, buffer.PinnedBuffer, (uint)QueuedBuffer.BufferSize, IntPtr.Zero, buffer.Overlapped.OverlappedStruct))
+            {
+                if (Marshal.GetLastWin32Error() != NativeMethods.ERROR_IO_PENDING)
                 {
-                    if (Marshal.GetLastWin32Error() == NativeMethods.ERROR_SEM_TIMEOUT)
-                    {
-                        // This was a pipe timeout. Return an empty byte array to indicate this case.
-                        return new byte[0];
-                    }
                     throw new Exception("ReadPipe failed. " + (new Win32Exception()).ToString());
                 }
-
-                byte[] newdata = new byte[transferSize];
-                Array.Copy(data, newdata, transferSize);
-                return newdata;
             }
         }
 
-        // hacky synchronous send.
-        public void WritePipe(byte pipeId, byte[] pipeData)
+        internal byte[] EndReadPipe(QueuedBuffer buf)
         {
-            //using (Overlapped ov = new Overlapped())
+            UInt32 transferSize;
+
+            if (!NativeMethods.WinUsb_GetOverlappedResult(WinusbHandle, buf.Overlapped.OverlappedStruct, out transferSize, true))
             {
-                int remainingbytes = pipeData.Length;
-                while (remainingbytes > 0)
+                if (Marshal.GetLastWin32Error() == NativeMethods.ERROR_SEM_TIMEOUT)
                 {
-                    /*
-                    if (!NativeMethods.WinUsb_WritePipe(WinusbHandle, pipeId, pipeData, (uint)pipeData.Length, IntPtr.Zero, ref ov.OverlappedStruct))
-                    {
-                        if (Marshal.GetLastWin32Error() != NativeMethods.ERROR_IO_PENDING)
-                        {
-                            throw new Exception("WritePipe failed. " + (new Win32Exception()).ToString());
-                        }
-                        // Wait for IO to complete.
-                        //ov.WaitEvent.WaitOne();
-                    }
-                    UInt32 transferSize;
-
-                    if (!NativeMethods.WinUsb_GetOverlappedResult(WinusbHandle, ref ov.OverlappedStruct, out transferSize, true))
-                    {
-                        throw new Exception("WritePipe's overlapped result failed. " + (new Win32Exception()).ToString());
-                    }
-
-                    if (transferSize == pipeData.Length) return;
-
-                    remainingbytes -= (int)transferSize;
-                     */
-
-                    UInt32 transferSize = 0;
-                    if (!NativeMethods.WinUsb_WritePipe(WinusbHandle, pipeId, pipeData, (uint)pipeData.Length, ref transferSize, IntPtr.Zero))
-                    {
-                        throw new Exception("WritePipe failed. " + (new Win32Exception()).ToString());
-                    }
-                    if (transferSize == pipeData.Length) return;
-
-                    remainingbytes -= (int)transferSize;
-
-                    // Need to retry. Copy the remaining data to a new buffer.
-                    byte[] data = new byte[remainingbytes];
-                    Array.Copy(pipeData, transferSize, data, 0, remainingbytes);
-
-                    pipeData = data;
+                    // This was a pipe timeout. Return an empty byte array to indicate this case.
+                    System.Diagnostics.Debug.WriteLine("Timed out");
+                    return new byte[0];
                 }
+                throw new Exception("ReadPipe's overlapped result failed. " + (new Win32Exception()).ToString());
             }
 
+            byte[] data = new byte[transferSize];
+            Marshal.Copy(buf.PinnedBuffer, data, 0, (int)transferSize);
+            return data;
+        }
+
+
+        // basic synchronous send.
+        public void WritePipe(byte pipeId, byte[] pipeData)
+        {
+
+            int remainingbytes = pipeData.Length;
+            while (remainingbytes > 0)
+            {
+
+                UInt32 transferSize = 0;
+                if (!NativeMethods.WinUsb_WritePipe(WinusbHandle, pipeId, pipeData, (uint)pipeData.Length, ref transferSize, IntPtr.Zero))
+                {
+                    throw new Exception("WritePipe failed. " + (new Win32Exception()).ToString());
+                }
+                if (transferSize == pipeData.Length) return;
+
+                remainingbytes -= (int)transferSize;
+
+                // Need to retry. Copy the remaining data to a new buffer.
+                byte[] data = new byte[remainingbytes];
+                Array.Copy(pipeData, transferSize, data, 0, remainingbytes);
+
+                pipeData = data;
+            }
         }
 
     }
+
+
+    internal class QueuedBuffer : IDisposable
+    {
+        public const int BufferSize = 512;
+        public Overlapped Overlapped;
+        public IntPtr PinnedBuffer;
+        public QueuedBuffer()
+        {
+            Overlapped = new Overlapped();
+            PinnedBuffer = Marshal.AllocHGlobal(BufferSize);
+        }
+
+        public void Dispose()
+        {
+            Overlapped.Dispose();
+            Marshal.FreeHGlobal(PinnedBuffer);
+            GC.SuppressFinalize(this);
+        }
+
+        public void Wait()
+        {
+            Overlapped.WaitEvent.WaitOne();
+        }
+
+        public bool Ready
+        {
+            get
+            {
+                return Overlapped.WaitEvent.WaitOne(0);
+            }
+        }
+        
+    }
+
+
 
     // Naive and non-performant version to get something running quickly.
     internal class BufferedPipeThread
@@ -394,8 +414,18 @@ namespace winusbdotnet
 
         ManualResetEvent ReceiveTick;
 
-        public BufferedPipeThread(WinUSBDevice dev, byte pipeId)
+        QueuedBuffer[] BufferList;
+        Queue<QueuedBuffer> PendingBuffers;
+
+        public BufferedPipeThread(WinUSBDevice dev, byte pipeId, int bufferCount)
         {
+            PendingBuffers = new Queue<QueuedBuffer>(bufferCount);
+            BufferList = new QueuedBuffer[bufferCount];
+            for (int i = 0; i < bufferCount;i++)
+            {
+                BufferList[i] = new QueuedBuffer();
+            }
+
             EventConcurrency = new Semaphore(3, 3);
             Device = dev;
             DevicePipeId = pipeId;
@@ -404,6 +434,14 @@ namespace winusbdotnet
             ReceiveTick = new ManualResetEvent(false);
             PipeThread = new Thread(ThreadFunc);
             PipeThread.IsBackground = true;
+
+            // Start reading on all the buffers.
+            foreach(QueuedBuffer qb in BufferList)
+            {
+                dev.BeginReadPipe(pipeId, qb);
+                PendingBuffers.Enqueue(qb);
+            }
+
             PipeThread.Start();
         }
 
@@ -574,7 +612,8 @@ namespace winusbdotnet
 
         void ThreadFunc(object context)
         {
-            
+            Queue<byte[]> receivedData = new Queue<byte[]>(BufferList.Length);
+
             while(true)
             {
                 if (Device.Stopping)
@@ -582,21 +621,53 @@ namespace winusbdotnet
 
                 try
                 {
-                    byte[] data = Device.ReadPipe(DevicePipeId, 512);
-
-                    if(data.Length > 0)
+                    PendingBuffers.Peek().Wait();
+                    // Process a large group of received buffers in a batch, if available.
+                    int n = 0;
+                    try
                     {
-                        lock(this)
+                        while (n < BufferList.Length)
                         {
-                            ReceivedData.Enqueue(data);
-                            QueuedLength += data.Length;
-                            TotalReceived += data.Length;
+                            QueuedBuffer buf = PendingBuffers.Peek();
+                            if (n == 0 || buf.Ready)
+                            {
+                                byte[] data = Device.EndReadPipe(buf);
+                                PendingBuffers.Dequeue();
+                                if (data.Length > 0)
+                                {   // Length of zero is a timeout condition.
+                                    receivedData.Enqueue(data);
+                                }
+                                Device.BeginReadPipe(DevicePipeId, buf);
+                                // Todo: If this operation fails during normal operation, the buffer is lost from rotation.
+                                // Should never happen during normal operation, but should confirm and mitigate if it's possible.
+                                PendingBuffers.Enqueue(buf);
+
+                            }
+                            n++;
                         }
-                        ThreadPool.QueueUserWorkItem(RaiseNewData);
+                    }
+                    finally
+                    {
+                        // Unless we're exiting, ensure we always indicate the data, even if some operation failed.
+                        if(!Device.Stopping && receivedData.Count > 0)
+                        {
+                            lock (this)
+                            {
+                                foreach (byte[] data in receivedData)
+                                {
+                                    ReceivedData.Enqueue(data);
+                                    QueuedLength += data.Length;
+                                    TotalReceived += data.Length;
+                                }
+                            }
+                            ThreadPool.QueueUserWorkItem(RaiseNewData);
+                            receivedData.Clear();
+                        }
                     }
                 }
-                catch
+                catch(Exception ex)
                 {
+                    System.Diagnostics.Debug.Print("Should not happen: Exception in background thread. {0}", ex.ToString());
                     Thread.Sleep(15);
                 }
 

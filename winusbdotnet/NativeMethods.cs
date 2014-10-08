@@ -653,7 +653,7 @@ namespace winusbdotnet
         */
 
         [DllImport("winusb.dll", SetLastError = true)]
-        public extern static bool WinUsb_ReadPipe(IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength, IntPtr lengthTransferred, ref NativeOverlapped overlapped);
+        public extern static bool WinUsb_ReadPipe(IntPtr interfaceHandle, byte pipeId, IntPtr buffer, uint bufferLength, IntPtr lengthTransferred, IntPtr overlapped);
         [DllImport("winusb.dll", SetLastError = true)]
         public extern static bool WinUsb_ReadPipe(IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength, ref UInt32 lengthTransferred, IntPtr overlapped);
 
@@ -684,7 +684,7 @@ namespace winusbdotnet
         */
 
         [DllImport("winusb.dll", SetLastError = true)]
-        public extern static bool WinUsb_GetOverlappedResult(IntPtr interfaceHandle, ref NativeOverlapped overlapped, out UInt32 numberOfBytesTransferred, bool wait);
+        public extern static bool WinUsb_GetOverlappedResult(IntPtr interfaceHandle, IntPtr overlapped, out UInt32 numberOfBytesTransferred, bool wait);
 
 
         /* 
@@ -777,7 +777,6 @@ namespace winusbdotnet
         public IntPtr Internal;
         public IntPtr InternalHigh;
         public IntPtr Pointer;
-        //public SafeWaitHandle Event;
         public IntPtr Event;
     }
 
@@ -786,17 +785,22 @@ namespace winusbdotnet
         public Overlapped()
         {
             WaitEvent = new ManualResetEvent(false);
-            OverlappedStruct = new NativeOverlapped();
-            OverlappedStruct.Event = WaitEvent.SafeWaitHandle.DangerousGetHandle();
+            OverlappedStructShadow = new NativeOverlapped();
+            OverlappedStructShadow.Event = WaitEvent.SafeWaitHandle.DangerousGetHandle();
+
+            OverlappedStruct = Marshal.AllocHGlobal(Marshal.SizeOf(OverlappedStructShadow));
+            Marshal.StructureToPtr(OverlappedStructShadow, OverlappedStruct, false);
         }
         public void Dispose()
         {
+            Marshal.FreeCoTaskMem(OverlappedStruct);
             WaitEvent.Dispose();
             GC.SuppressFinalize(this);
         }
 
         public ManualResetEvent WaitEvent;
-        public NativeOverlapped OverlappedStruct;
+        public NativeOverlapped OverlappedStructShadow;
+        public IntPtr OverlappedStruct;
     }
 
     public enum WinUsbPipePolicy
