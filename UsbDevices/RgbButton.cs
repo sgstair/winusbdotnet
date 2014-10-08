@@ -4,7 +4,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace winusbdotnet
+using winusbdotnet;
+
+namespace winusbdotnet.UsbDevices
 {
     public class RgbButton
     {

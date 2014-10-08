@@ -27,6 +27,7 @@ using System.Text;
 using System.Threading.Tasks;
 
 using winusbdotnet;
+using winusbdotnet.UsbDevices;
 
 namespace test
 {

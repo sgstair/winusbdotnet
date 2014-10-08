@@ -49,6 +49,10 @@
     <None Include="App.config" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\UsbDevices\UsbDevices.csproj">
+      <Project>{4cb7e84d-8638-45e6-9401-41cee8062392}</Project>
+      <Name>UsbDevices</Name>
+    </ProjectReference>
     <ProjectReference Include="..\winusbdotnet\winusbdotnet.csproj">
       <Project>{f9fec76a-8120-4002-92c9-423a60dfd468}</Project>
       <Name>winusbdotnet</Name>

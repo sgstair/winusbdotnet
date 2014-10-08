@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "winusbdotnet", "winusbdotne
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "test", "..\test\test.csproj", "{6238949F-C7F0-4215-A5AF-A61E69BC1AAE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UsbDevices", "..\UsbDevices\UsbDevices.csproj", "{4CB7E84D-8638-45E6-9401-41CEE8062392}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{6238949F-C7F0-4215-A5AF-A61E69BC1AAE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6238949F-C7F0-4215-A5AF-A61E69BC1AAE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6238949F-C7F0-4215-A5AF-A61E69BC1AAE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4CB7E84D-8638-45E6-9401-41CEE8062392}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4CB7E84D-8638-45E6-9401-41CEE8062392}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4CB7E84D-8638-45E6-9401-41CEE8062392}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4CB7E84D-8638-45E6-9401-41CEE8062392}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

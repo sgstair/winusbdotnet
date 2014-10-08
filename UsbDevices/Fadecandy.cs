@@ -22,8 +22,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 
 //
 // This is a control library for Fadecandy
-// It probably doesn't belong in the winusbdotnet library and will be moved elsewhere eventually.
-// In the meantime, it is a good place to develop this library.
 //
 
 using System;
@@ -32,7 +30,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace winusbdotnet
+using winusbdotnet;
+
+namespace winusbdotnet.UsbDevices
 {
 
     public struct RGBColor
