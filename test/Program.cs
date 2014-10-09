@@ -92,6 +92,38 @@ namespace test
 
             Console.Out.WriteLine("{0} device{1}", devices.Length, devices.Length==1?"":"s");
 
+            WinUSBEnumeratedDevice[] hackrfs = HackRF.Enumerate().ToArray();
+            if (hackrfs.Length > 0)
+            {
+                Console.WriteLine("Connecting to hackrf device {0}", hackrfs[0].ToString());
+
+                HackRF rf = new HackRF(hackrfs[0]);
+
+                Console.WriteLine("Version String: {0}", rf.ReadVersion());
+                
+                // Do some benchmarking with the receive modes.
+                rf.SetSampleRate(2000000);
+                rf.ModeReceive();
+                rf.SetFrequency(100000000); // 100 MHz
+
+                int lastEaten = 0;
+                int eaten = rf.PacketsEaten;
+                DateTime lastTime = DateTime.Now;
+                while (true)
+                {
+                    System.Threading.Thread.Sleep(2000);
+                    DateTime newTime = DateTime.Now;
+                    lastEaten = eaten;
+                    eaten = rf.PacketsEaten;
+                    double seconds = newTime.Subtract(lastTime).TotalSeconds;
+                    double pps = (eaten - lastEaten) / seconds;
+                    lastTime = newTime;
+
+                    Console.WriteLine("Receiving... {0}  {1}pps", eaten, pps);
+                }
+
+            }
+
 
             WinUSBEnumeratedDevice[] fadecandies = Fadecandy.Enumerate().ToArray();
             if(fadecandies.Length > 0)

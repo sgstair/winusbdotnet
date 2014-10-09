@@ -591,7 +591,7 @@ namespace winusbdotnet
         );
           */
         [DllImport("setupapi.dll", SetLastError = true, CharSet=CharSet.Unicode)]
-        private extern static bool SetupDiGetDeviceInterfaceDetail(IntPtr deviceInfoSet, ref SP_DEVICE_INTERFACE_DATA deviceInterfaceData, 
+        private extern static bool SetupDiGetDeviceInterfaceDetail(IntPtr deviceInfoSet, [In] ref SP_DEVICE_INTERFACE_DATA deviceInterfaceData, 
             IntPtr deviceInterfaceDetailData, UInt32 deviceInterfaceDetailSize, ref UInt32 requiredSize, IntPtr deviceInfoData );
 
 
@@ -622,6 +622,17 @@ namespace winusbdotnet
 
 
 
+
+        public struct WINUSB_SETUP_PACKET
+        {
+            public byte RequestType;
+            public byte Request;
+            public UInt16 Value;
+            public UInt16 Index;
+            public UInt16 Length;
+        }
+
+
         /* 
         BOOL __stdcall WinUsb_Initialize(
           _In_   HANDLE DeviceHandle,
@@ -640,6 +651,21 @@ namespace winusbdotnet
         [DllImport("winusb.dll", SetLastError = true)]
         public extern static bool WinUsb_Free(IntPtr interfaceHandle);
 
+        /*
+         BOOL __stdcall WinUsb_ControlTransfer(
+          _In_       WINUSB_INTERFACE_HANDLE InterfaceHandle,
+          _In_       WINUSB_SETUP_PACKET SetupPacket,
+          _Out_      PUCHAR Buffer,
+          _In_       ULONG BufferLength,
+          _Out_opt_  PULONG LengthTransferred,
+          _In_opt_   LPOVERLAPPED Overlapped
+        );
+        */
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_ControlTransfer(IntPtr interfaceHandle, WINUSB_SETUP_PACKET setupPacket, byte[] buffer, uint bufferLength, out UInt32 lengthTransferred, IntPtr overlapped);
+
+
+
 
         /* 
         BOOL __stdcall WinUsb_ReadPipe(
@@ -655,7 +681,7 @@ namespace winusbdotnet
         [DllImport("winusb.dll", SetLastError = true)]
         public extern static bool WinUsb_ReadPipe(IntPtr interfaceHandle, byte pipeId, IntPtr buffer, uint bufferLength, IntPtr lengthTransferred, IntPtr overlapped);
         [DllImport("winusb.dll", SetLastError = true)]
-        public extern static bool WinUsb_ReadPipe(IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength, ref UInt32 lengthTransferred, IntPtr overlapped);
+        public extern static bool WinUsb_ReadPipe(IntPtr interfaceHandle, byte pipeId, [Out] byte[] buffer, uint bufferLength, ref UInt32 lengthTransferred, IntPtr overlapped);
 
         /* 
         BOOL __stdcall WinUsb_WritePipe(
@@ -669,9 +695,9 @@ namespace winusbdotnet
         */
 
         [DllImport("winusb.dll", SetLastError = true)]
-        public extern static bool WinUsb_WritePipe(IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength, IntPtr lengthTransferred, ref NativeOverlapped overlapped);
+        public extern static bool WinUsb_WritePipe(IntPtr interfaceHandle, byte pipeId, [In] byte[] buffer, uint bufferLength, IntPtr lengthTransferred, ref NativeOverlapped overlapped);
         [DllImport("winusb.dll", SetLastError = true)]
-        public extern static bool WinUsb_WritePipe(IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength, ref UInt32 lengthTransferred, IntPtr overlapped);
+        public extern static bool WinUsb_WritePipe(IntPtr interfaceHandle, byte pipeId, [In] byte[] buffer, uint bufferLength, ref UInt32 lengthTransferred, IntPtr overlapped);
 
 
         /* 
@@ -776,7 +802,7 @@ namespace winusbdotnet
     {
         public IntPtr Internal;
         public IntPtr InternalHigh;
-        public IntPtr Pointer;
+        public long Pointer; // On 32bit systems this is 32bit, but it's merged with an "Offset" field which is 64bit.
         public IntPtr Event;
     }
 

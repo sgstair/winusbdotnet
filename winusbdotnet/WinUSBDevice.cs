@@ -238,7 +238,7 @@ namespace winusbdotnet
             return GetInterface(pipeId, false);
         }
 
-        public IPipeByteReader BufferedGetPacketInterface(byte pipeId)
+        public IPipePacketReader BufferedGetPacketInterface(byte pipeId)
         {
             return GetInterface(pipeId, true);
         }
@@ -376,6 +376,72 @@ namespace winusbdotnet
                 pipeData = data;
             }
         }
+
+
+
+        public void ControlTransferOut(byte requestType, byte request, UInt16 value, UInt16 index, byte[] data)
+        {
+            NativeMethods.WINUSB_SETUP_PACKET setupPacket = new NativeMethods.WINUSB_SETUP_PACKET();
+            setupPacket.RequestType = (byte)(requestType | ControlDirectionOut);
+            setupPacket.Request = request;
+            setupPacket.Value = value;
+            setupPacket.Index = index;
+            if (data != null)
+            {
+                setupPacket.Length = (ushort)data.Length;
+            }
+
+            UInt32 actualLength = 0;
+
+            if (!NativeMethods.WinUsb_ControlTransfer(WinusbHandle, setupPacket, data, setupPacket.Length, out actualLength, IntPtr.Zero))
+            {
+                throw new Exception("ControlTransfer failed. " + (new Win32Exception()).ToString());
+            }
+            
+            if (data != null && actualLength != data.Length)
+            {
+                throw new Exception("Not all data transferred");
+            }
+        }
+
+        public byte[] ControlTransferIn(byte requestType, byte request, UInt16 value, UInt16 index, UInt16 length)
+        {
+            NativeMethods.WINUSB_SETUP_PACKET setupPacket = new NativeMethods.WINUSB_SETUP_PACKET();
+            setupPacket.RequestType = (byte)(requestType | ControlDirectionIn);
+            setupPacket.Request = request;
+            setupPacket.Value = value;
+            setupPacket.Index = index;
+            setupPacket.Length = length;
+
+            byte[] output = new byte[length];
+            UInt32 actualLength = 0;
+
+            if(!NativeMethods.WinUsb_ControlTransfer(WinusbHandle, setupPacket, output, (uint)output.Length, out actualLength, IntPtr.Zero))
+            {
+                throw new Exception("ControlTransfer failed. " + (new Win32Exception()).ToString());
+            }
+
+            if(actualLength != output.Length)
+            {
+                byte[] copyTo = new byte[actualLength];
+                Array.Copy(output, copyTo, actualLength);
+                output = copyTo;
+            }
+            return output;
+        }
+
+        const byte ControlDirectionOut = 0x00;
+        const byte ControlDirectionIn = 0x80;
+
+        public const byte ControlTypeStandard = 0x00;
+        public const byte ControlTypeClass = 0x20;
+        public const byte ControlTypeVendor = 0x40;
+
+        public const byte ControlRecipientDevice = 0;
+        public const byte ControlRecipientInterface = 1;
+        public const byte ControlRecipientEndpoint = 2;
+        public const byte ControlRecipientOther = 3;
+
 
     }
 
@@ -529,6 +595,8 @@ namespace winusbdotnet
                 PendingBuffers.Enqueue(qb);
             }
 
+            dev.SetPipePolicy(pipeId, WinUsbPipePolicy.RAW_IO, 1);
+
             PipeThread.Start();
         }
 
@@ -540,12 +608,18 @@ namespace winusbdotnet
 
         public byte[] PeekPacket()
         {
-            return ReceivedData.Peek();
+            lock (this)
+            {
+                return ReceivedData.Peek();
+            }
         }
 
         public byte[] DequeuePacket()
         {
-            return ReceivedData.Dequeue();
+            lock (this)
+            {
+                return ReceivedData.Dequeue();
+            }
         }
 
         //
