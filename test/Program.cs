@@ -105,9 +105,12 @@ namespace test
                 rf.SetSampleRate(2000000);
                 rf.ModeReceive();
                 rf.SetFrequency(100000000); // 100 MHz
+                rf.SetSampleRate(10000000);
 
                 int lastEaten = 0;
                 int eaten = rf.PacketsEaten;
+                long lastEatenBytes = 0;
+                long eatenBytes = rf.BytesEaten;
                 DateTime lastTime = DateTime.Now;
                 while (true)
                 {
@@ -115,11 +118,21 @@ namespace test
                     DateTime newTime = DateTime.Now;
                     lastEaten = eaten;
                     eaten = rf.PacketsEaten;
+                    lastEatenBytes = eatenBytes;
+                    eatenBytes = rf.BytesEaten;
                     double seconds = newTime.Subtract(lastTime).TotalSeconds;
                     double pps = (eaten - lastEaten) / seconds;
+                    double mbps = ((eatenBytes - lastEatenBytes) / seconds)/1000000;
                     lastTime = newTime;
 
-                    Console.WriteLine("Receiving... {0}  {1}pps", eaten, pps);
+
+                    Console.WriteLine("Receiving... {0}  {1:n2}pps {2:n4}MB/s", eaten, pps, mbps);
+                    string[] histogramData;
+                    lock (rf)
+                    {
+                        histogramData = rf.EatenHistogram.OrderByDescending(kv => kv.Value).Take(8).Select(kv => string.Format("{0}:{1}", kv.Key, kv.Value)).ToArray();
+                    }
+                    Console.WriteLine(string.Join(" ", histogramData));
                 }
 
             }

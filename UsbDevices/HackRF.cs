@@ -60,10 +60,6 @@ namespace winusbdotnet.UsbDevices
         {
             Device = new WinUSBDevice(dev);
 
-            Device.EnableBufferedRead(EP_RX, 16);
-            RxPipeReader = Device.BufferedGetPacketInterface(EP_RX);
-            Device.BufferedReadNotifyPipe(EP_RX, RxDataCallback);
-
             // Set a bunch of sane defaults.
             SetSampleRate(10000000); // 10MHz
             SetFilterBandwidth(10000000);
@@ -85,14 +81,18 @@ namespace winusbdotnet.UsbDevices
             {
                 while (RxPipeReader.QueuedPackets > 0)
                 {
-                    RxPipeReader.DequeuePacket();
+                    int len = RxPipeReader.DequeuePacket().Length;
+                    BytesEaten += len;
+                    if (!EatenHistogram.ContainsKey(len)) { EatenHistogram.Add(len, 0); }
+                    EatenHistogram[len]++;
                     PacketsEaten++;
                 }
             }
         }
 
-        public int PacketsEaten;
-
+        public int PacketsEaten; // debug
+        public long BytesEaten;
+        public Dictionary<int, int> EatenHistogram = new Dictionary<int, int>();
 
         enum DeviceRequest
         {
@@ -148,6 +148,10 @@ namespace winusbdotnet.UsbDevices
         public void ModeReceive()
         {
             SetTransceiverMode(TransceiverMode.Receive);
+
+            Device.EnableBufferedRead(EP_RX, 4,64);
+            RxPipeReader = Device.BufferedGetPacketInterface(EP_RX);
+            Device.BufferedReadNotifyPipe(EP_RX, RxDataCallback);
         }
 
         public void ModeTransmit()

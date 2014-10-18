@@ -192,14 +192,18 @@ namespace winusbdotnet
         }
 
         Dictionary<byte, BufferedPipeThread> bufferedPipes = new Dictionary<byte, BufferedPipeThread>();
-        public void EnableBufferedRead(byte pipeId, int bufferCount = 4)
+        public void EnableBufferedRead(byte pipeId, int bufferCount = 4, int multiPacketCount = 1)
         {
             if (!bufferedPipes.ContainsKey(pipeId))
             {
-                bufferedPipes.Add(pipeId, new BufferedPipeThread(this, pipeId, bufferCount));
+                bufferedPipes.Add(pipeId, new BufferedPipeThread(this, pipeId, bufferCount, multiPacketCount));
             }
         }
 
+        public void StopBufferedRead(byte pipeId)
+        {
+
+        }
 
         public void BufferedReadNotifyPipe(byte pipeId, NewDataCallback callback)
         {
@@ -322,7 +326,7 @@ namespace winusbdotnet
         {
             buffer.Overlapped.WaitEvent.Reset();
 
-            if (!NativeMethods.WinUsb_ReadPipe(WinusbHandle, pipeId, buffer.PinnedBuffer, (uint)QueuedBuffer.BufferSize, IntPtr.Zero, buffer.Overlapped.OverlappedStruct))
+            if (!NativeMethods.WinUsb_ReadPipe(WinusbHandle, pipeId, buffer.PinnedBuffer, (uint)buffer.BufferSize, IntPtr.Zero, buffer.Overlapped.OverlappedStruct))
             {
                 if (Marshal.GetLastWin32Error() != NativeMethods.ERROR_IO_PENDING)
                 {
@@ -448,11 +452,12 @@ namespace winusbdotnet
 
     internal class QueuedBuffer : IDisposable
     {
-        public const int BufferSize = 512;
+        public readonly int BufferSize;
         public Overlapped Overlapped;
         public IntPtr PinnedBuffer;
-        public QueuedBuffer()
+        public QueuedBuffer(int bufferSizeBytes)
         {
+            BufferSize = bufferSizeBytes;
             Overlapped = new Overlapped();
             PinnedBuffer = Marshal.AllocHGlobal(BufferSize);
         }
@@ -570,13 +575,19 @@ namespace winusbdotnet
         QueuedBuffer[] BufferList;
         Queue<QueuedBuffer> PendingBuffers;
 
-        public BufferedPipeThread(WinUSBDevice dev, byte pipeId, int bufferCount)
+        public BufferedPipeThread(WinUSBDevice dev, byte pipeId, int bufferCount, int multiPacketCount)
         {
+            int maxTransferSize = (int)dev.GetPipePolicy(pipeId, WinUsbPipePolicy.MAXIMUM_TRANSFER_SIZE);
+
+            int pipeSize = 512; // Todo: query pipe transfer size for 1:1 mapping to packets.
+            int bufferSize = pipeSize * multiPacketCount;
+            if (bufferSize > maxTransferSize) { bufferSize = maxTransferSize; }
+
             PendingBuffers = new Queue<QueuedBuffer>(bufferCount);
             BufferList = new QueuedBuffer[bufferCount];
             for (int i = 0; i < bufferCount;i++)
             {
-                BufferList[i] = new QueuedBuffer();
+                BufferList[i] = new QueuedBuffer(bufferSize);
             }
 
             EventConcurrency = new Semaphore(3, 3);
@@ -588,6 +599,8 @@ namespace winusbdotnet
             PipeThread = new Thread(ThreadFunc);
             PipeThread.IsBackground = true;
 
+            //dev.SetPipePolicy(pipeId, WinUsbPipePolicy.PIPE_TRANSFER_TIMEOUT, 1000);
+
             // Start reading on all the buffers.
             foreach(QueuedBuffer qb in BufferList)
             {
@@ -595,10 +608,12 @@ namespace winusbdotnet
                 PendingBuffers.Enqueue(qb);
             }
 
-            dev.SetPipePolicy(pipeId, WinUsbPipePolicy.RAW_IO, 1);
+            //dev.SetPipePolicy(pipeId, WinUsbPipePolicy.RAW_IO, 1);
 
             PipeThread.Start();
         }
+
+        public long TotalReceivedBytes { get { return TotalReceived; } }
 
         //
         // Packet Reader members
@@ -626,7 +641,7 @@ namespace winusbdotnet
         // Byte Reader members
         //
 
-        public int QueuedDataLength { get { lock (this) { return QueuedLength;  } } }
+        public int QueuedDataLength { get {  return QueuedLength;  } }
 
         // Only returns as many as it can.
         public byte[] ReceiveBytes(int count)
