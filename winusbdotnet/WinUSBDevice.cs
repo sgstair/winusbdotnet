@@ -344,7 +344,7 @@ namespace winusbdotnet
                 if (Marshal.GetLastWin32Error() == NativeMethods.ERROR_SEM_TIMEOUT)
                 {
                     // This was a pipe timeout. Return an empty byte array to indicate this case.
-                    System.Diagnostics.Debug.WriteLine("Timed out");
+                    //System.Diagnostics.Debug.WriteLine("Timed out");
                     return null;
                 }
                 throw new Exception("ReadPipe's overlapped result failed. " + (new Win32Exception()).ToString());

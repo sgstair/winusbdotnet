@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "test", "..\test\test.csproj
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UsbDevices", "..\UsbDevices\UsbDevices.csproj", "{4CB7E84D-8638-45E6-9401-41CEE8062392}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestSeek", "..\TestSeek\TestSeek.csproj", "{012D3FDD-9622-4018-8A29-9A4A35BC1B37}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,10 @@ Global
 		{4CB7E84D-8638-45E6-9401-41CEE8062392}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4CB7E84D-8638-45E6-9401-41CEE8062392}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4CB7E84D-8638-45E6-9401-41CEE8062392}.Release|Any CPU.Build.0 = Release|Any CPU
+		{012D3FDD-9622-4018-8A29-9A4A35BC1B37}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{012D3FDD-9622-4018-8A29-9A4A35BC1B37}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{012D3FDD-9622-4018-8A29-9A4A35BC1B37}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{012D3FDD-9622-4018-8A29-9A4A35BC1B37}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
