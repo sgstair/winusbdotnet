@@ -48,6 +48,10 @@ namespace TestSeek
         int frameCount;
         bool stopThread;
 
+        ThermalFrame lastFrame, lastCalibrationFrame;
+        CalibratedThermalFrame lastUsableFrame;
+        CalibratedThermalFrame lastRenderedFrame;
+
         byte[] FrameData;
         Queue<Bitmap> bmpQueue;
 
@@ -73,17 +77,34 @@ namespace TestSeek
 
         void ThermalThreadProc()
         {
-            while (!stopThread)
+            while (!stopThread && thermal != null)
             {
-                byte[] data = thermal.GetFrameBlocking();
+                bool progress = false;
+                lastFrame = thermal.GetFrameBlocking();
 
-                //System.Diagnostics.Debug.Print("Start of data: " + string.Join(" ", data.Take(32).Select(b => b.ToString("x2")).ToArray()));
-                System.Diagnostics.Debug.Print("End of data: " + string.Join(" ", data.Reverse().Take(32).Reverse().Select(b => b.ToString("x2")).ToArray()));
+                if(lastFrame.IsCalibrationFrame)
+                {
+                    lastCalibrationFrame = lastFrame;
+                }
+                else
+                {
+                    if(lastCalibrationFrame != null && lastFrame.IsUsableFrame)
+                    {
+                        lastUsableFrame = lastFrame.ProcessFrame(lastCalibrationFrame);
+                        progress = true;
+                    }
+                }
+
+
+                //System.Diagnostics.Debug.Print("Start of data: " + string.Join(" ", lastFrame.RawData.Take(64).Select(b => b.ToString("x2")).ToArray()));
+                //System.Diagnostics.Debug.Print("End of data: " + string.Join(" ", lastFrame.RawData.Reverse().Take(32).Reverse().Select(b => b.ToString("x2")).ToArray()));
                 
                 // Do stuff
                 frameCount++;
-                FrameData = data;
-                Invalidate();
+                if(progress)
+                {
+                    Invalidate();
+                }
             }
         }
 
@@ -92,29 +113,42 @@ namespace TestSeek
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
             stopThread = true;
-            thermalThread.Join(500);
-            thermal.Deinit();
+            if (thermal != null)
+            {
+                thermalThread.Join(500);
+                thermal.Deinit();
+            }
         }
 
         private void Form1_Paint(object sender, PaintEventArgs e)
         {
-            byte[] data = FrameData;
+            CalibratedThermalFrame data = lastUsableFrame;
             if (data == null) return;
-            Bitmap bmp = new Bitmap(208, 156);
-            int c = 0;
             int y;
-            for(y=0;y<156;y++)
+            if(data != lastRenderedFrame)
             {
-                for(int x=0;x<208;x++)
-                {
-                    int r = data[c++];
-                    int g = data[c++];
-                    bmp.SetPixel(x, y, Color.FromArgb(r,g,0));
-                }
-            }
+                lastRenderedFrame = data;
+                // Process new frame
+                Bitmap bmp = new Bitmap(data.Width, data.Height);
+                int c = 0;
 
-            bmpQueue.Enqueue(bmp);
-            if (bmpQueue.Count > 5) bmpQueue.Dequeue(); 
+                for (y = 0; y < 156; y++)
+                {
+                    for (int x = 0; x < 208; x++)
+                    {
+                        int v = data.PixelData[c++];
+
+                        v = (v - data.MinValue) * 255 / (data.MaxValue - data.MinValue);
+                        if (v < 0) v = 0;
+                        if (v > 255) v = 255;
+
+                        bmp.SetPixel(x, y, Color.FromArgb(v, v, v));
+                    }
+                }
+
+                bmpQueue.Enqueue(bmp);
+                if (bmpQueue.Count > 5) bmpQueue.Dequeue(); 
+            }
 
             y = 10;
             foreach(Bitmap b in bmpQueue.Reverse())
