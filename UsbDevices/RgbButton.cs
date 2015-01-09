@@ -40,12 +40,34 @@ namespace winusbdotnet.UsbDevices
 
         const byte OUT_PIPE = 0x03;
         const byte IN_PIPE = 0x83;
-        const int ButtonThreshold = 0x70;
+        const int ButtonThreshold = 0x7C;
 
         WinUSBDevice BaseDevice;
+
+        /// <summary>
+        /// Set of colors to display on the device. 
+        /// Modifying this array does not update the colors on the device, call SendButtonColors when ready to update.
+        /// </summary>
         public RGBColor[] ButtonColors;
+
+        /// <summary>
+        /// Raw data from the device's button sensors in the range 0-127
+        /// This value is an analog pressure value per button, lower values indicate higher pressure
+        /// Technically, it is the log of a measurement of the resistance of the button.
+        /// Typical values are 127 (unpressed), 0 (fully pressed), and most often a range of values around 40-80 when it's pressed lightly.
+        /// If you push the button straight down, it's likely to hit 0, but if you activate it by pushing sideways, it typically ends up around 60.
+        /// It's possible to express almost the full range, though there's very low resolution below about 40.
+        /// </summary>
         public int[] ButtonValues;
+
+        /// <summary>
+        /// For each button, whether the button is currently being pressed down.
+        /// </summary>
         public bool[] ButtonPressed;
+
+        /// <summary>
+        /// Count of the number of button data frames received from the device.
+        /// </summary>
         public long DataCount;
 
         public RgbButton(WinUSBEnumeratedDevice dev)
@@ -58,6 +80,7 @@ namespace winusbdotnet.UsbDevices
 
             BaseDevice.EnableBufferedRead(IN_PIPE);
             BaseDevice.BufferedReadNotifyPipe(IN_PIPE, NewDataCallback);
+            EnableDisplayTimeout();
             EnableButtonData();
         }
 
@@ -116,7 +139,12 @@ namespace winusbdotnet.UsbDevices
             }
         }
 
-
+        /// <summary>
+        /// Send a command to display the current value of ButtonColors across the button LEDs.
+        /// This should be called after preparing a new set of ButtonColors to display.
+        /// By default, if SendButtonColors is not called at least once every 5 seconds, the LEDs will timeout and turn off.
+        /// [Enable|Disable]DisplayTimeout functions can control this behavior.
+        /// </summary>
         public void SendButtonColors()
         {
             byte[] command = new byte[13];
@@ -138,14 +166,44 @@ namespace winusbdotnet.UsbDevices
             command[0] = b;
             BaseDevice.WritePipe(OUT_PIPE, command);
         }
-        void EnableButtonData()
+
+
+        /// <summary>
+        /// Tell the device to start providing periodic updates on button status (>100Hz)
+        /// </summary>
+        public void EnableButtonData()
         {
             SendByteCommand((byte)'B');
         }
-        void DisableButtonData()
+
+        /// <summary>
+        /// Tell the device to stop providing button data, cached view in this class will become stale.
+        /// </summary>
+        public void DisableButtonData()
         {
             SendByteCommand((byte)'X');
         }
+
+        /// <summary>
+        /// Tell device to go blank if more than 5 seconds pass without an LED update (SendButtonColors)
+        /// </summary>
+        public void EnableDisplayTimeout()
+        {
+            SendByteCommand((byte)'T');
+        }
+
+        /// <summary>
+        /// Tell device to not automatically blank, and always show the most recently sent button colors.
+        /// </summary>
+        public void DisableDisplayTimeout()
+        {
+            SendByteCommand((byte)'I');
+        }
+
+        /// <summary>
+        /// Restart the device in a USB mass storage mode where it is possible to replace the firmware.
+        /// Device will not respond to RgbButton commands in this mode.
+        /// </summary>
         public void EnterProgrammingMode()
         {
             SendByteCommand((byte)'P');

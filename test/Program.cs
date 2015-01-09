@@ -186,6 +186,8 @@ namespace test
 
                     t += 0.02;
                     System.Threading.Thread.Sleep(20);
+
+                    Console.WriteLine("{0} {1} {2} {3}", rb.ButtonValues[0],  rb.ButtonValues[1],  rb.ButtonValues[2],  rb.ButtonValues[3]);
                 }
 
 
