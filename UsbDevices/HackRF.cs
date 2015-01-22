@@ -33,6 +33,9 @@ namespace winusbdotnet.UsbDevices
 {
     public class HackRF
     {
+        public delegate void ChunkNotification();
+        public event ChunkNotification NewChunk;
+
         public static IEnumerable<WinUSBEnumeratedDevice> Enumerate()
         {
             foreach (WinUSBEnumeratedDevice dev in WinUSBDevice.EnumerateAllDevices())
@@ -59,6 +62,9 @@ namespace winusbdotnet.UsbDevices
         public HackRF(WinUSBEnumeratedDevice dev)
         {
             Device = new WinUSBDevice(dev);
+            
+            SetBufferSettings(512, 128); // 64MB of data
+            ResetBuffers();
 
             // Set a bunch of sane defaults.
             SetSampleRate(10000000); // 10MHz
@@ -74,19 +80,70 @@ namespace winusbdotnet.UsbDevices
             Device = null;
         }
 
+        int chunkKb, chunkCount, chunkMask;
+        int firstChunk, lastChunk;
+        byte[][] chunkData;
+
+        public void SetBufferSettings(int chunk_kb, int num_chunks)
+        {
+            if ((num_chunks & (num_chunks - 1)) != 0) throw new ArgumentException("num_chunks must be a power of two");
+            chunkKb = chunk_kb;
+            chunkCount = num_chunks;
+            chunkMask = chunkCount - 1;
+        }
+        void ResetBuffers()
+        {
+            chunkData = new byte[chunkCount][];
+            firstChunk = 0;
+            lastChunk = -1;
+        }
+
+
+        public int FirstAvailableChunk
+        {
+            get { return firstChunk; }
+        }
+        public int LastAvailableChunk
+        {
+            get { return lastChunk; }
+        }
+
+        public byte[] GetChunk(int chunk)
+        {
+            lock(this)
+            {
+                if (chunk < firstChunk || chunk > lastChunk) return null;
+                return chunkData[chunk & chunkMask];
+            }
+        }
 
         void RxDataCallback()
         {
+            bool haveData = false; ;
             lock (this)
             {
                 while (RxPipeReader.QueuedPackets > 0)
                 {
-                    int len = RxPipeReader.DequeuePacket().Length;
+                    byte[] packet = RxPipeReader.DequeuePacket();
+                    lastChunk++;
+                    chunkData[lastChunk&chunkMask] = packet;
+                    if (firstChunk <= lastChunk-chunkCount)
+                    {
+                        firstChunk++;
+                    }
+                    haveData = true;
+
+                    int len = packet.Length;
                     BytesEaten += len;
                     if (!EatenHistogram.ContainsKey(len)) { EatenHistogram.Add(len, 0); }
                     EatenHistogram[len]++;
                     PacketsEaten++;
                 }
+            }
+            if(haveData)
+            {
+                ChunkNotification cn = NewChunk;
+                if (cn != null) cn();
             }
         }
 
@@ -148,7 +205,7 @@ namespace winusbdotnet.UsbDevices
         public void ModeReceive()
         {
             SetTransceiverMode(TransceiverMode.Receive);
-
+            ResetBuffers();
             Device.EnableBufferedRead(EP_RX, 4,64);
             RxPipeReader = Device.BufferedGetPacketInterface(EP_RX);
             Device.BufferedReadNotifyPipe(EP_RX, RxDataCallback);
