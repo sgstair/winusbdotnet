@@ -124,16 +124,14 @@ namespace winusbdotnet.UsbDevices
             {
                 while (RxPipeReader.QueuedPackets > 0)
                 {
-                    byte[] packet = RxPipeReader.DequeuePacket();
                     lastChunk++;
-                    chunkData[lastChunk&chunkMask] = packet;
-                    if (firstChunk <= lastChunk-chunkCount)
+                    int len = RxPipeReader.ReadPacket(chunkData[lastChunk & chunkMask], 0);
+                    if (firstChunk <= lastChunk - chunkCount)
                     {
                         firstChunk++;
                     }
                     haveData = true;
 
-                    int len = packet.Length;
                     BytesEaten += len;
                     if (!EatenHistogram.ContainsKey(len)) { EatenHistogram.Add(len, 0); }
                     EatenHistogram[len]++;
@@ -206,7 +204,7 @@ namespace winusbdotnet.UsbDevices
         {
             SetTransceiverMode(TransceiverMode.Receive);
             ResetBuffers();
-            Device.EnableBufferedRead(EP_RX, 4,64);
+            Device.EnableBufferedRead(EP_RX, 16, chunkKb*1024);
             RxPipeReader = Device.BufferedGetPacketInterface(EP_RX);
             Device.BufferedReadNotifyPipe(EP_RX, RxDataCallback);
         }

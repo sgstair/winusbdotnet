@@ -192,11 +192,12 @@ namespace winusbdotnet
         }
 
         Dictionary<byte, BufferedPipeThread> bufferedPipes = new Dictionary<byte, BufferedPipeThread>();
-        public void EnableBufferedRead(byte pipeId, int bufferCount = 4, int multiPacketCount = 1)
+        // Todo: Compute better value for bufferLength. Based on pipe transfer size.
+        public void EnableBufferedRead(byte pipeId, int bufferCount = 16, int bufferLength = 32)
         {
             if (!bufferedPipes.ContainsKey(pipeId))
             {
-                bufferedPipes.Add(pipeId, new BufferedPipeThread(this, pipeId, bufferCount, multiPacketCount));
+                bufferedPipes.Add(pipeId, new BufferedPipeThread(this, pipeId, bufferCount, bufferLength));
             }
         }
 
@@ -335,7 +336,7 @@ namespace winusbdotnet
             }
         }
 
-        internal byte[] EndReadPipe(QueuedBuffer buf)
+        internal bool EndReadPipe(QueuedBuffer buf)
         {
             UInt32 transferSize;
 
@@ -345,14 +346,12 @@ namespace winusbdotnet
                 {
                     // This was a pipe timeout. Return an empty byte array to indicate this case.
                     //System.Diagnostics.Debug.WriteLine("Timed out");
-                    return null;
+                    return false;
                 }
                 throw new Exception("ReadPipe's overlapped result failed. " + (new Win32Exception()).ToString());
             }
-
-            byte[] data = new byte[transferSize];
-            Marshal.Copy(buf.PinnedBuffer, data, 0, (int)transferSize);
-            return data;
+            buf.CompletedSize = (int)transferSize;
+            return true;
         }
 
 
@@ -453,6 +452,7 @@ namespace winusbdotnet
     internal class QueuedBuffer : IDisposable
     {
         public readonly int BufferSize;
+        public int CompletedSize;
         public Overlapped Overlapped;
         public IntPtr PinnedBuffer;
         public QueuedBuffer(int bufferSizeBytes)
@@ -536,17 +536,15 @@ namespace winusbdotnet
         int QueuedPackets { get; }
 
         /// <summary>
-        /// Retrieve the next packet, but do not remove it from the buffer.
-        /// Warning: If you modify the returned array, the modifications will be present in future calls to Peek/Dequeue for this pacekt.
+        /// Length of the next packet waiting to be dequeued.
         /// </summary>
-        /// <returns>The contents of the next packet in the receive queue</returns>
-        byte[] PeekPacket();
+        int NextPacketLength { get; }
 
         /// <summary>
-        /// Retrieve the next packet from the receive queue
+        /// Retrieve the next packet from the receive queue into a buffer.
         /// </summary>
-        /// <returns>The contents of the next packet in the receive queue</returns>
-        byte[] DequeuePacket();
+        /// <returns>The length that was copied</returns>
+        int ReadPacket(byte[] target, int offset);
     }
 
 
@@ -570,27 +568,30 @@ namespace winusbdotnet
         private int SkipFirstBytes;
         public bool Stopped = false;
 
+
         ManualResetEvent ReceiveTick;
 
         QueuedBuffer[] BufferList;
         Queue<QueuedBuffer> PendingBuffers;
+        Queue<QueuedBuffer> ReceivedBuffers;
+        object BufferLock;
 
-        public BufferedPipeThread(WinUSBDevice dev, byte pipeId, int bufferCount, int multiPacketCount)
+        public BufferedPipeThread(WinUSBDevice dev, byte pipeId, int bufferCount, int bufferSize)
         {
             int maxTransferSize = (int)dev.GetPipePolicy(pipeId, WinUsbPipePolicy.MAXIMUM_TRANSFER_SIZE);
 
-            int pipeSize = 512; // Todo: query pipe transfer size for 1:1 mapping to packets.
-            int bufferSize = pipeSize * multiPacketCount;
             if (bufferSize > maxTransferSize) { bufferSize = maxTransferSize; }
 
+            BufferLock = new object();
             PendingBuffers = new Queue<QueuedBuffer>(bufferCount);
+            ReceivedBuffers = new Queue<QueuedBuffer>(bufferCount);
             BufferList = new QueuedBuffer[bufferCount];
             for (int i = 0; i < bufferCount;i++)
             {
                 BufferList[i] = new QueuedBuffer(bufferSize);
             }
 
-            EventConcurrency = new Semaphore(3, 3);
+            EventConcurrency = new AutoResetEvent(true);
             Device = dev;
             DevicePipeId = pipeId;
             QueuedLength = 0;
@@ -619,23 +620,67 @@ namespace winusbdotnet
         // Packet Reader members
         //
 
-        public int QueuedPackets { get { lock (this) { return ReceivedData.Count; } } }
+        public int QueuedPackets { get { lock (this) { return ReceivedBuffers.Count; } } }
 
-        public byte[] PeekPacket()
+        public int NextPacketLength
         {
-            lock (this)
+            get
             {
-                return ReceivedData.Peek();
+                lock (BufferLock)
+                {
+                    if (ReceivedBuffers.Count > 0) return ReceivedBuffers.Peek().CompletedSize;
+                }
+                return 0;
             }
         }
 
-        public byte[] DequeuePacket()
+
+        public int ReadPacket(byte[] target, int offset)
+        {
+            QueuedBuffer buf = null;
+            lock(BufferLock)
+            {
+                if(ReceivedBuffers.Count > 0)
+                {
+                    buf = ReceivedBuffers.Dequeue();
+                }
+                else
+                {
+                    return 0;
+                }
+            }
+            int length = buf.CompletedSize;
+            Marshal.Copy(buf.PinnedBuffer, target, offset, buf.CompletedSize);
+            lock (this)
+            {
+                try
+                {
+                    Device.BeginReadPipe(DevicePipeId, buf);
+                    // Todo: If this operation fails during normal operation, the buffer is lost from rotation.
+                    // Should never happen during normal operation, but should confirm and mitigate if it's possible.
+                    PendingBuffers.Enqueue(buf);
+                }
+                catch (Exception ex)
+                {
+
+                }
+            }
+            return length;
+        }
+
+        void UpdateReceivedData()
         {
             lock (this)
             {
-                return ReceivedData.Dequeue();
+                while (NextPacketLength > 0)
+                {
+                    byte[] buffer = new byte[NextPacketLength];
+                    ReadPacket(buffer, 0);
+                    ReceivedData.Enqueue(buffer);
+                }
             }
         }
+
 
         //
         // Byte Reader members
@@ -680,6 +725,7 @@ namespace winusbdotnet
             {
                 lock (this)
                 {
+                    UpdateReceivedData();
                     CopyReceiveBytes(output, 0, count);
                 }
                 return output;
@@ -691,6 +737,7 @@ namespace winusbdotnet
                 ReceiveTick.Reset();
                 lock (this)
                 {
+                    UpdateReceivedData();
                     int thisBytes = QueuedLength;
 
                     if(thisBytes == 0)
@@ -722,6 +769,7 @@ namespace winusbdotnet
         {
             lock (this)
             {
+                UpdateReceivedData();
                 int queue = QueuedLength;
                 if (queue < count)
                     throw new ArgumentException("count must be less than the data length");
@@ -814,8 +862,7 @@ namespace winusbdotnet
 
         void ThreadFunc(object context)
         {
-            Queue<byte[]> receivedData = new Queue<byte[]>(BufferList.Length);
-
+            int recvBytes;
             while(true)
             {
                 if (Device.Stopping)
@@ -823,47 +870,49 @@ namespace winusbdotnet
 
                 try
                 {
+                    recvBytes = 0;
                     PendingBuffers.Peek().Wait();
                     // Process a large group of received buffers in a batch, if available.
                     int n = 0;
                     try
                     {
-                        while (n < BufferList.Length)
+                        lock (BufferLock)
                         {
-                            QueuedBuffer buf = PendingBuffers.Peek();
-                            if (n == 0 || buf.Ready)
+                            while (n < BufferList.Length)
                             {
-                                byte[] data = Device.EndReadPipe(buf);
-                                PendingBuffers.Dequeue();
-                                if (data != null)
-                                {   // null is a timeout condition.
-                                    receivedData.Enqueue(data);
+                                QueuedBuffer buf = PendingBuffers.Peek();
+                                if (n == 0 || buf.Ready)
+                                {
+                                    PendingBuffers.Dequeue();
+                                    if (Device.EndReadPipe(buf))
+                                    {
+                                        ReceivedBuffers.Enqueue(buf);
+                                        recvBytes += buf.CompletedSize;
+                                    }
+                                    else
+                                    {
+                                        // Timeout condition. Requeue.
+                                        Device.BeginReadPipe(DevicePipeId, buf);
+                                        // Todo: If this operation fails during normal operation, the buffer is lost from rotation.
+                                        // Should never happen during normal operation, but should confirm and mitigate if it's possible.
+                                        PendingBuffers.Enqueue(buf);
+                                    }
                                 }
-                                Device.BeginReadPipe(DevicePipeId, buf);
-                                // Todo: If this operation fails during normal operation, the buffer is lost from rotation.
-                                // Should never happen during normal operation, but should confirm and mitigate if it's possible.
-                                PendingBuffers.Enqueue(buf);
-
+                                n++;
                             }
-                            n++;
                         }
                     }
                     finally
                     {
                         // Unless we're exiting, ensure we always indicate the data, even if some operation failed.
-                        if(!Device.Stopping && receivedData.Count > 0)
+                        if(!Device.Stopping && recvBytes > 0)
                         {
-                            lock (this)
+                            lock(this)
                             {
-                                foreach (byte[] data in receivedData)
-                                {
-                                    ReceivedData.Enqueue(data);
-                                    QueuedLength += data.Length;
-                                    TotalReceived += data.Length;
-                                }
+                                QueuedLength += recvBytes;
+                                TotalReceived += recvBytes;
                             }
                             ThreadPool.QueueUserWorkItem(RaiseNewData);
-                            receivedData.Clear();
                         }
                     }
                 }
@@ -881,24 +930,31 @@ namespace winusbdotnet
 
         public event WinUSBDevice.NewDataCallback NewDataEvent;
 
-        Semaphore EventConcurrency;
+        AutoResetEvent EventConcurrency;
 
         void RaiseNewData(object context)
         {
             WinUSBDevice.NewDataCallback cb = NewDataEvent;
             if (cb != null)
             {
-                if(EventConcurrency.WaitOne(0)) // Prevent requests from stacking up; Don't issue new events if there are several in flight
+                // Only one callback, avoid dispatching callbacks across multiple threads.
+                // Application should read all available data in the callback.
+                // May receive spurious callbacks, but will always dispatch a new callback if more data was received.
+                if(EventConcurrency.WaitOne(0)) 
                 {
                     try
                     {
-                        cb();
+                        long dataMarker = -1;
+                        while (dataMarker != TotalReceivedBytes)
+                        {
+                            dataMarker = TotalReceivedBytes;
+                            cb();
+                        }
                     }
                     finally
                     {
-                        EventConcurrency.Release();
+                        EventConcurrency.Set();
                     }
-
                 }
             }
         }
