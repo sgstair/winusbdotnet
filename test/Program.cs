@@ -143,13 +143,13 @@ namespace test
             {
                 Fadecandy fc = new Fadecandy(fadecandies[0]);
 
+                RgbRing ring = new RgbRing(24);
+
                 double t = 0;
                 while(true)
                 {
-                    for (int i = 0; i < 24; i++)
-                    {
-                        fc.Pixels[i].R = Math.Sin(t ) * 0.2 + 0.2;
-                    }
+                    ring.Update(t);
+                    Array.Copy(ring.Ring, fc.Pixels, 24);
                     fc.Pixels[64].G = Math.Sin(t) * 0.2 + 0.2;
                     fc.FlushRange(0, 65);
 

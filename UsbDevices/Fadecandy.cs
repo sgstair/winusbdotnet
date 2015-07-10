@@ -76,6 +76,143 @@ namespace winusbdotnet.UsbDevices
         }
     }
 
+
+    public class RgbRing
+    {
+        static Random r = new Random();
+        
+        public RGBColor[] Ring;
+        public RgbRing(int ringSize)
+        {
+            Ring = new RGBColor[ringSize];
+            Layers = new List<IRingEffect>();
+
+            GeneratePerlin(5, 0.9);
+            Scale(0.05);
+            Translate(0.1);
+        }
+        List<IRingEffect> Layers;
+
+
+        public void Update(double t)
+        {
+            foreach(IRingEffect layer in Layers)
+            {
+                layer.Apply(t, Ring);
+            }
+        }
+
+
+
+        public void ClearEffects()
+        {
+            Layers.Clear();
+        }
+
+        public void GeneratePerlin(int levels, double ampMod)
+        {
+            Layers.Add(new RingGeneratePerlin(levels, ampMod));
+        }
+        public void Scale(double scale)
+        {
+            Layers.Add(new RingScale(scale));
+        }
+        public void Translate(double translate)
+        {
+            Layers.Add(new RingTranslate(translate));
+        }
+
+
+        interface IRingEffect
+        {
+            void Apply(double t, RGBColor[] data);
+        }
+
+        class RingGeneratePerlin : IRingEffect
+        {
+            int levelCount;
+            double[] offsets;
+            double[] scales;
+            double[] amp;
+            public RingGeneratePerlin(int levels, double ampMod)
+            {
+                levelCount = levels;
+                offsets = new double[levels * 3];
+                scales = new double[levels * 3];
+                amp = new double[levels];
+                for (int i = 0; i < levels * 3; i++)
+                {
+                    offsets[i] = r.NextDouble()*15;
+                    scales[i] = (r.NextDouble()+1)/5;
+                }
+                double ampValue = 1;
+                for (int i = 0; i < levels; i++)
+                {
+                    amp[i] = ampValue;
+                    ampValue *= ampMod;
+                }
+            }
+            double Compute(int index, double t, double offset)
+            {
+                double v = 0;
+                for(int i=0;i<levelCount;i++)
+                {
+                    v += Math.Sin((offset*i + t * scales[i+index] + offsets[i+index]) * 2 * Math.PI);
+                }
+                return v;
+            }
+            public void Apply(double t, RGBColor[] data)
+            {
+                double r,g,b;
+                for(int i=0;i<data.Length;i++)
+                {
+                    r = Compute(0,t,(double)i/data.Length);
+                    g = Compute(levelCount,t,(double)i/data.Length);
+                    b = Compute(levelCount*2,t,(double)i/data.Length);
+                    data[i] = new RGBColor(r,g,b);   
+                }
+            }
+
+        }
+
+        class RingScale : IRingEffect
+        {
+            double scaleValue;
+            public RingScale(double scale)
+            {
+                scaleValue = scale;
+            }
+            public void Apply(double t, RGBColor[] data)
+            {
+                for(int i=0;i<data.Length;i++)
+                {
+                    data[i].R *= scaleValue;
+                    data[i].G *= scaleValue;
+                    data[i].B *= scaleValue;
+                }
+            }
+        }
+        class RingTranslate : IRingEffect
+        {
+            double transValue;
+            public RingTranslate(double translate)
+            {
+                transValue = translate;
+            }
+            public void Apply(double t, RGBColor[] data)
+            {
+                for(int i=0;i<data.Length;i++)
+                {
+                    data[i].R += transValue;
+                    data[i].G += transValue;
+                    data[i].B += transValue;
+                }
+            }
+        }
+
+    }
+
+
     public class Fadecandy : IDisposable
     {
         public static IEnumerable<WinUSBEnumeratedDevice> Enumerate()
