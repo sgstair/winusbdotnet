@@ -30,6 +30,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 using System.ComponentModel;
+using System.Diagnostics;
 
 namespace winusbdotnet
 {
@@ -558,6 +559,8 @@ namespace winusbdotnet
 
 
         Thread PipeThread;
+        Thread WorkerThread;
+        AutoResetEvent ThreadNewData;
         WinUSBDevice Device;
         byte DevicePipeId;
 
@@ -576,8 +579,11 @@ namespace winusbdotnet
         Queue<QueuedBuffer> ReceivedBuffers;
         object BufferLock;
 
+
         public BufferedPipeThread(WinUSBDevice dev, byte pipeId, int bufferCount, int bufferSize)
         {
+
+
             int maxTransferSize = (int)dev.GetPipePolicy(pipeId, WinUsbPipePolicy.MAXIMUM_TRANSFER_SIZE);
 
             if (bufferSize > maxTransferSize) { bufferSize = maxTransferSize; }
@@ -591,7 +597,6 @@ namespace winusbdotnet
                 BufferList[i] = new QueuedBuffer(bufferSize);
             }
 
-            EventConcurrency = new AutoResetEvent(true);
             Device = dev;
             DevicePipeId = pipeId;
             QueuedLength = 0;
@@ -599,6 +604,10 @@ namespace winusbdotnet
             ReceiveTick = new ManualResetEvent(false);
             PipeThread = new Thread(ThreadFunc);
             PipeThread.IsBackground = true;
+            WorkerThread = new Thread(WorkerThreadFunc);
+            WorkerThread.IsBackground = true;
+            ThreadNewData = new AutoResetEvent(false);
+
 
             //dev.SetPipePolicy(pipeId, WinUsbPipePolicy.PIPE_TRANSFER_TIMEOUT, 1000);
 
@@ -612,6 +621,7 @@ namespace winusbdotnet
             //dev.SetPipePolicy(pipeId, WinUsbPipePolicy.RAW_IO, 1);
 
             PipeThread.Start();
+            WorkerThread.Start();
         }
 
         public long TotalReceivedBytes { get { return TotalReceived; } }
@@ -912,7 +922,9 @@ namespace winusbdotnet
                                 QueuedLength += recvBytes;
                                 TotalReceived += recvBytes;
                             }
-                            ThreadPool.QueueUserWorkItem(RaiseNewData);
+                            ThreadNewData.Set();
+                            //ThreadPool.QueueUserWorkItem(RaiseNewData);
+                            
                         }
                     }
                 }
@@ -930,31 +942,58 @@ namespace winusbdotnet
 
         public event WinUSBDevice.NewDataCallback NewDataEvent;
 
-        AutoResetEvent EventConcurrency;
+
+
+        void WorkerThreadFunc()
+        {
+            // Attempt to set processor affinity to everything but the first two. (todo: come up with something smarter.)
+
+            Thread.BeginThreadAffinity();
+            if (Environment.ProcessorCount > 2)
+            {
+#pragma warning disable 618
+                // warning CS0618: 'System.AppDomain.GetCurrentThreadId()' is obsolete: 'AppDomain.GetCurrentThreadId has been deprecated because it does not provide a stable Id when managed threads are running on fibers (aka lightweight threads). To get a stable identifier for a managed thread, use the ManagedThreadId property on Thread.  http://go.microsoft.com/fwlink/?linkid=14202'
+                int threadId = AppDomain.GetCurrentThreadId();
+#pragma warning restore 618
+                int cpuCount = Environment.ProcessorCount;
+                long cpuMask = -4;
+                if(cpuCount == 63)
+                {
+                    cpuMask = 0x7FFFFFFFFFFFFFFCL;
+                }
+                if(cpuCount < 63)
+                {
+                    cpuMask = (2 << cpuCount) - 1;
+                    cpuMask -= 3;
+                }
+                ProcessThread thread = Process.GetCurrentProcess().Threads.Cast<ProcessThread>().Where(t => t.Id == threadId).Single();
+                thread.ProcessorAffinity = new IntPtr(cpuMask);
+            }
+
+            while (true)
+            {
+                if (Device.Stopping)
+                    break;
+
+
+                if (ThreadNewData.WaitOne(1000))
+                {
+                    RaiseNewData(null);
+                }
+            }
+            Thread.EndThreadAffinity();
+        }
 
         void RaiseNewData(object context)
         {
             WinUSBDevice.NewDataCallback cb = NewDataEvent;
             if (cb != null)
             {
-                // Only one callback, avoid dispatching callbacks across multiple threads.
-                // Application should read all available data in the callback.
-                // May receive spurious callbacks, but will always dispatch a new callback if more data was received.
-                if(EventConcurrency.WaitOne(0)) 
+                long dataMarker = -1;
+                while (dataMarker != TotalReceivedBytes)
                 {
-                    try
-                    {
-                        long dataMarker = -1;
-                        while (dataMarker != TotalReceivedBytes)
-                        {
-                            dataMarker = TotalReceivedBytes;
-                            cb();
-                        }
-                    }
-                    finally
-                    {
-                        EventConcurrency.Set();
-                    }
+                    dataMarker = TotalReceivedBytes;
+                    cb();
                 }
             }
         }
