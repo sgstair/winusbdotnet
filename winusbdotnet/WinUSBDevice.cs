@@ -577,6 +577,7 @@ namespace winusbdotnet
         QueuedBuffer[] BufferList;
         Queue<QueuedBuffer> PendingBuffers;
         Queue<QueuedBuffer> ReceivedBuffers;
+        Queue<QueuedBuffer> RequeuePending;
         object BufferLock;
 
 
@@ -591,6 +592,7 @@ namespace winusbdotnet
             BufferLock = new object();
             PendingBuffers = new Queue<QueuedBuffer>(bufferCount);
             ReceivedBuffers = new Queue<QueuedBuffer>(bufferCount);
+            RequeuePending = new Queue<QueuedBuffer>(bufferCount);
             BufferList = new QueuedBuffer[bufferCount];
             for (int i = 0; i < bufferCount;i++)
             {
@@ -661,19 +663,9 @@ namespace winusbdotnet
             }
             int length = buf.CompletedSize;
             Marshal.Copy(buf.PinnedBuffer, target, offset, buf.CompletedSize);
-            lock (this)
+            lock (RequeuePending)
             {
-                try
-                {
-                    Device.BeginReadPipe(DevicePipeId, buf);
-                    // Todo: If this operation fails during normal operation, the buffer is lost from rotation.
-                    // Should never happen during normal operation, but should confirm and mitigate if it's possible.
-                    PendingBuffers.Enqueue(buf);
-                }
-                catch (Exception ex)
-                {
-
-                }
+                RequeuePending.Enqueue(buf);
             }
             return length;
         }
@@ -708,6 +700,7 @@ namespace winusbdotnet
             byte[] output = new byte[count];
             lock (this)
             {
+                UpdateReceivedData();
                 CopyReceiveBytes(output, 0, count);
             }
             return output;
@@ -723,6 +716,7 @@ namespace winusbdotnet
             byte[] output = new byte[count];
             lock (this)
             {
+                UpdateReceivedData();
                 CopyPeekBytes(output, 0, count);
             }
             return output;
@@ -881,34 +875,58 @@ namespace winusbdotnet
                 try
                 {
                     recvBytes = 0;
-                    PendingBuffers.Peek().Wait();
+                    if (PendingBuffers.Count > 0)
+                    {
+                        PendingBuffers.Peek().Wait();
+                    }
                     // Process a large group of received buffers in a batch, if available.
                     int n = 0;
+                    bool shortcut = PendingBuffers.Count > 0;
                     try
                     {
-                        lock (BufferLock)
+                        lock(RequeuePending)
                         {
-                            while (n < BufferList.Length)
+                            // Requeue buffers that were drained.
+                            while(RequeuePending.Count > 0)
                             {
-                                QueuedBuffer buf = PendingBuffers.Peek();
-                                if (n == 0 || buf.Ready)
+                                QueuedBuffer buf = RequeuePending.Dequeue();
+                                Device.BeginReadPipe(DevicePipeId, buf);
+                                // Todo: If this operation fails during normal operation, the buffer is lost from rotation.
+                                // Should never happen during normal operation, but should confirm and mitigate if it's possible.
+                                PendingBuffers.Enqueue(buf);
+                            }
+                        }
+                        if (PendingBuffers.Count == 0)
+                        {
+                            Thread.Sleep(0);
+                        }
+                        else
+                        {
+                            lock (BufferLock)
+                            {
+                                while (n < BufferList.Length && PendingBuffers.Count > 0)
                                 {
-                                    PendingBuffers.Dequeue();
-                                    if (Device.EndReadPipe(buf))
+                                    QueuedBuffer buf = PendingBuffers.Peek();
+                                    if (shortcut || buf.Ready)
                                     {
-                                        ReceivedBuffers.Enqueue(buf);
-                                        recvBytes += buf.CompletedSize;
+                                        shortcut = false;
+                                        PendingBuffers.Dequeue();
+                                        if (Device.EndReadPipe(buf))
+                                        {
+                                            ReceivedBuffers.Enqueue(buf);
+                                            recvBytes += buf.CompletedSize;
+                                        }
+                                        else
+                                        {
+                                            // Timeout condition. Requeue.
+                                            Device.BeginReadPipe(DevicePipeId, buf);
+                                            // Todo: If this operation fails during normal operation, the buffer is lost from rotation.
+                                            // Should never happen during normal operation, but should confirm and mitigate if it's possible.
+                                            PendingBuffers.Enqueue(buf);
+                                        }
                                     }
-                                    else
-                                    {
-                                        // Timeout condition. Requeue.
-                                        Device.BeginReadPipe(DevicePipeId, buf);
-                                        // Todo: If this operation fails during normal operation, the buffer is lost from rotation.
-                                        // Should never happen during normal operation, but should confirm and mitigate if it's possible.
-                                        PendingBuffers.Enqueue(buf);
-                                    }
+                                    n++;
                                 }
-                                n++;
                             }
                         }
                     }
