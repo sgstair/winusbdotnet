@@ -64,6 +64,20 @@ namespace winusbdotnet
         }
     }
 
+    public enum UsbStandardRequestCode
+    {
+        GetStatus = 0,
+        ClearFeature = 1,
+        SetFeature = 3,
+        SetAddress = 5,
+        GetDescriptor = 6,
+        SetDescriptor = 7,
+        GetConfiguration = 8,
+        SetConfiguration = 9,
+        GetInterface = 10,
+        SetInterface = 11
+    }
+
     public class WinUSBDevice : IDisposable
     {
         public static IEnumerable<WinUSBEnumeratedDevice> EnumerateDevices(Guid deviceInterfaceGuid)
@@ -132,6 +146,23 @@ namespace winusbdotnet
             }
         }
 
+        public DeviceDescriptor GetDeviceDescriptor()
+        {
+            return DeviceDescriptor.Parse(GetDescriptor(DescriptorType.Device, 0, 32));
+        }
+
+        public DeviceConfiguration GetConfigurationDescriptor()
+        {
+            // Todo: more than just the first configuration.
+            return DeviceConfiguration.Parse(GetDescriptor(DescriptorType.Configuration, 0));
+        }
+
+
+        public byte[] GetDescriptor(DescriptorType descriptorType, byte descriptorIndex, ushort length = 1024)
+        {
+            UInt16 value = (UInt16)(descriptorIndex | ((byte)descriptorType) << 8);
+            return ControlTransferIn(ControlTypeStandard | ControlRecipientDevice, (byte)UsbStandardRequestCode.GetDescriptor, value, 0, length);
+        }
 
         public void Dispose()
         {
@@ -204,7 +235,7 @@ namespace winusbdotnet
 
         public void StopBufferedRead(byte pipeId)
         {
-
+            throw new NotImplementedException();
         }
 
         public void BufferedReadNotifyPipe(byte pipeId, NewDataCallback callback)

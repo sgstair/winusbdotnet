@@ -39,6 +39,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Descriptors.cs" />
     <Compile Include="NativeMethods.cs" />
     <Compile Include="WinUSBDevice.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

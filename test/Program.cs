@@ -43,6 +43,23 @@ namespace test
             foreach (WinUSBEnumeratedDevice devicePath in allDevices)
             {
                 Console.Out.WriteLine(devicePath.ToString());
+                try {
+                    WinUSBDevice d = new WinUSBDevice(devicePath);
+                    try {
+                        DeviceDescriptor dev = d.GetDeviceDescriptor();
+                        Console.Out.WriteLine(dev.ToString());
+                        DeviceConfiguration cfg = d.GetConfigurationDescriptor();
+                        Console.Out.WriteLine(cfg.ToString());
+                    }
+                    finally
+                    {
+                        d.Close();
+                    }
+                }
+                catch(Exception ex)
+                {
+                    Console.Out.WriteLine("Exception while querying descriptors: {0}", ex);
+                }
             }
 
 
