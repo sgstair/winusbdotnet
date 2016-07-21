@@ -1,4 +1,26 @@
-﻿using System;
+﻿/*
+Copyright (c) 2016 Stephen Stair (sgstair@akkit.org)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ THE SOFTWARE.
+*/
+
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -153,18 +175,55 @@ namespace winusbdotnet
         {
             return string.Format("DescriptorNode( {0} ({1:x2}): {2})", Type, RawType, string.Join(" ", Data.Select(b => b.ToString("x2"))));
         }
-    }
 
-    public class DeviceConfiguration
-    {
-        public DeviceConfiguration()
+        /// <summary>
+        /// Read a byte from the descriptor, using the offset as documented in the USB Specifications.
+        /// </summary>
+        public byte ReadByte(int usbOffset)
         {
-            RawDescriptors = new List<DescriptorNode>();
+            if(usbOffset < 2 || usbOffset >= (2+Data.Length))
+            {
+                throw new ArgumentOutOfRangeException("usbOffset");
+            }
+            return Data[usbOffset - 2];
+        }
+        /// <summary>
+        /// Read a two byte value from the descriptor, using the offset as documented in the USB Specifications.
+        /// </summary>
+        public ushort ReadShort(int usbOffset)
+        {
+            if (usbOffset < 2 || usbOffset >= (2 + Data.Length - 1))
+            {
+                throw new ArgumentOutOfRangeException("usbOffset");
+            }
+            return (ushort)(Data[usbOffset - 2] | (Data[usbOffset - 2 + 1] << 8));
+        }
+        /// <summary>
+        /// Read a four byte value from the descriptor, using the offset as documented in the USB Specifications.
+        /// </summary>
+        public uint ReadLong(int usbOffset)
+        {
+            if (usbOffset < 2 || usbOffset >= (2 + Data.Length - 3))
+            {
+                throw new ArgumentOutOfRangeException("usbOffset");
+            }
+            return (uint)(Data[usbOffset - 2] | (Data[usbOffset - 2 + 1] << 8) | (Data[usbOffset - 2 + 2] << 16) | (Data[usbOffset - 2 + 3] << 24));
         }
 
-        public static DeviceConfiguration Parse(byte[] srcData)
+
+    }
+
+    public class ConfigurationDescriptor
+    {
+        public ConfigurationDescriptor()
         {
-            DeviceConfiguration c = new DeviceConfiguration();
+            RawDescriptors = new List<DescriptorNode>();
+            Interfaces = new List<InterfaceDescriptor>();
+        }
+
+        public static ConfigurationDescriptor Parse(byte[] srcData)
+        {
+            ConfigurationDescriptor c = new ConfigurationDescriptor();
 
             if(srcData.Length < 9 || srcData[0] != 9 || srcData[1] != (byte)DescriptorType.Configuration)
             {
@@ -192,18 +251,59 @@ namespace winusbdotnet
                 throw new Exception("Configuration descriptors overran specified length");
             }
 
-            // Next step, parse them off into interfaces and endpoints.
+            // Next step, parse them off into interfaces.
+            List<DescriptorNode> nodes = new List<DescriptorNode>();
+            DescriptorNode nodeInterface = null;
+            foreach(DescriptorNode n in c.RawDescriptors)
+            {
+                if(n.Type == DescriptorType.Interface)
+                {
+                    if(nodeInterface != null)
+                    {
+                        c.Interfaces.Add(InterfaceDescriptor.Parse(nodeInterface, nodes));
+                    }
+                    nodes.Clear();
+                    nodeInterface = n;
+                }
+                else
+                {
+                    if(nodeInterface == null)
+                    {
+                        throw new Exception("Configuration descriptor has unknown descriptor blocks before the first interface.");
+                    }
+                    nodes.Add(n);
+                }
+            }
+            if (nodeInterface != null)
+            {
+                c.Interfaces.Add(InterfaceDescriptor.Parse(nodeInterface, nodes));
+            }
 
 
             return c;
         }
 
 
+        public string[] ToStrings()
+        {
+            List<string> outStrings = new List<string>();
+            outStrings.Add(string.Format("ConfigurationDescriptor( Index {0} Attributes 0x{1:x} ({1}) PowerDraw {2}mA NumInterfaces {3} String {4:x2})",
+                Index, Attributes, PowerDraw * 2, NumInterfaces, DescriptionString));
+
+            foreach(InterfaceDescriptor d in Interfaces)
+            {
+                foreach(string s in d.ToStrings())
+                {
+                    outStrings.Add("  " + s);
+                }
+            }
+
+            return outStrings.ToArray();
+        }
+
         public override string ToString()
         {
-            string nodes = string.Join("\n",RawDescriptors.Select(d => "  " + d.ToString()));
-            return string.Format("ConfigurationDescriptor( Index {0} Attributes {1:x} ({1}) PowerDraw {2}mA NumInterfaces {3} String {4:x2})\n{5}",
-                Index, Attributes, PowerDraw * 2, NumInterfaces, DescriptionString, nodes);
+            return string.Join("\n", ToStrings());
         }
 
         public byte NumInterfaces;
@@ -213,5 +313,70 @@ namespace winusbdotnet
         public byte PowerDraw;
 
         public List<DescriptorNode> RawDescriptors;
+
+        public List<InterfaceDescriptor> Interfaces;
+
+    }
+
+    public class InterfaceDescriptor
+    {
+        public List<DescriptorNode> InterfaceDescriptors;
+        public List<DescriptorNode> RawSubDescriptors;
+
+        public byte Number;
+        public byte AlternateSetting;
+        public byte NumEndpoints;
+        public byte Class;
+        public byte SubClass;
+        public byte Protocol;
+        public byte DescriptionString;
+
+        public InterfaceDescriptor()
+        {
+            InterfaceDescriptors = new List<DescriptorNode>();
+            RawSubDescriptors = new List<DescriptorNode>();
+        }
+
+        public static InterfaceDescriptor Parse(DescriptorNode n, List<DescriptorNode> subDescriptors)
+        {
+            if(n.Type != DescriptorType.Interface || n.Data.Length != 7)
+            {
+                throw new Exception("Invalid interface descriptor");
+            }
+            InterfaceDescriptor i = new InterfaceDescriptor();
+
+            byte[] b = n.Data;
+            i.Number = b[0];
+            i.AlternateSetting = b[1];
+            i.NumEndpoints = b[2];
+            i.Class = b[3];
+            i.SubClass = b[4];
+            i.Protocol = b[5];
+            i.DescriptionString = b[6];
+
+            i.RawSubDescriptors.AddRange(subDescriptors);
+
+
+            return i;
+        }
+
+        public string[] ToStrings()
+        {
+            List<string> outStrings = new List<string>();
+
+            outStrings.Add(string.Format("InterfaceDescriptor( Interface {0} Alternate {1} Endpoints {2} Class {3:x2} {4:x2} Protocol {5:x2} string {6:x2}",
+                                        Number, AlternateSetting, NumEndpoints, Class, SubClass, Protocol, DescriptionString));
+
+            foreach(DescriptorNode n in RawSubDescriptors)
+            {
+                outStrings.Add("  " + n.ToString());
+            }
+
+            return outStrings.ToArray();
+        }
+        public override string ToString()
+        {
+            return string.Join("\n", ToStrings());
+        }
     }
 }

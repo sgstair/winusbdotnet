@@ -39,6 +39,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="DFU.cs" />
     <Compile Include="Fadecandy.cs" />
     <Compile Include="HackRF.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

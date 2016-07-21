@@ -48,7 +48,7 @@ namespace test
                     try {
                         DeviceDescriptor dev = d.GetDeviceDescriptor();
                         Console.Out.WriteLine(dev.ToString());
-                        DeviceConfiguration cfg = d.GetConfigurationDescriptor();
+                        ConfigurationDescriptor cfg = d.GetConfigurationDescriptor();
                         Console.Out.WriteLine(cfg.ToString());
                     }
                     finally

@@ -792,7 +792,34 @@ namespace winusbdotnet
         public extern static bool WinUsb_SetCurrentAlternateSetting(IntPtr interfaceHandle, byte alternateSetting);
 
 
+        /*
+        BOOL __stdcall WinUsb_GetAssociatedInterface(
+          _In_ WINUSB_INTERFACE_HANDLE  InterfaceHandle,
+          _In_ UCHAR                    AssociatedInterfaceIndex,
+          _Out_ PWINUSB_INTERFACE_HANDLE AssociatedInterfaceHandle
+        );
+        */
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_GetAssociatedInterface(IntPtr interfaceHandle, byte associatedInterfaceIndex, out IntPtr associatedInterfaceHandle);
 
+        /*
+        BOOL __stdcall WinUsb_GetCurrentFrameNumber(
+          _In_  HANDLE         DeviceHandle,
+          _Out_ PULONG         CurrentFrameNumber,
+          _Out_ LARGE_INTEGER  *TimeStamp
+        );
+        */
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_GetCurrentFrameNumber(SafeFileHandle deviceHandle, out UInt32 currentFrameNumber, out Int64 timestamp);
+
+        /*
+        BOOL __stdcall WinUsb_GetAdjustedFrameNumber(
+          _Inout_ PULONG         CurrentFrameNumber,
+          _In_    LARGE_INTEGER  TimeStamp
+        );
+        */
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_GetAdjustedFrameNumber(ref UInt32 currentFrameNumber, Int64 timestamp);
 
 
 

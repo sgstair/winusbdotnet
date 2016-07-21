@@ -151,10 +151,10 @@ namespace winusbdotnet
             return DeviceDescriptor.Parse(GetDescriptor(DescriptorType.Device, 0, 32));
         }
 
-        public DeviceConfiguration GetConfigurationDescriptor()
+        public ConfigurationDescriptor GetConfigurationDescriptor()
         {
             // Todo: more than just the first configuration.
-            return DeviceConfiguration.Parse(GetDescriptor(DescriptorType.Configuration, 0));
+            return ConfigurationDescriptor.Parse(GetDescriptor(DescriptorType.Configuration, 0));
         }
 
 
