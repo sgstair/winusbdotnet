@@ -168,19 +168,25 @@ namespace winusbdotnet
         {
             Stopping = true;
 
-            // Close handles which will cause background theads to stop working & exit.
+            // Abort pipe IO for any background threads
+            foreach (BufferedPipeThread th in bufferedPipes.Values)
+            {
+                NativeMethods.WinUsb_AbortPipe(WinusbHandle, th.PipeID);
+            }
+
+            // Wait for pipe threads to quit
+            foreach (BufferedPipeThread th in bufferedPipes.Values)
+            {
+                th.Join(TimeSpan.FromMilliseconds(500)); // Give threads a little time to wind down.
+            }
+
+            // Close handles
             if (WinusbHandle != IntPtr.Zero)
             {
                 NativeMethods.WinUsb_Free(WinusbHandle);
                 WinusbHandle = IntPtr.Zero;
             }
             deviceHandle.Close();
-
-            // Wait for pipe threads to quit
-            foreach (BufferedPipeThread th in bufferedPipes.Values)
-            {
-                while (!th.Stopped) Thread.Sleep(5);
-            }
 
             GC.SuppressFinalize(this);
         }
@@ -588,6 +594,7 @@ namespace winusbdotnet
         public bool InterfaceBound; // Has the interface been bound?
         public bool PacketInterface; // Are we using the packet reader interface?
 
+        public byte PipeID {  get { return DevicePipeId; } }
 
         Thread PipeThread;
         Thread WorkerThread;
@@ -655,6 +662,14 @@ namespace winusbdotnet
 
             PipeThread.Start();
             WorkerThread.Start();
+        }
+
+        // Wait for the threads associated with this class to terminate. Call this after setting the device Stopping flag.
+        public void Join(TimeSpan timeout)
+        {
+            ThreadNewData.Set(); // Ensure worker thread exits.
+            PipeThread.Join(timeout);
+            WorkerThread.Join(timeout);
         }
 
         public long TotalReceivedBytes { get { return TotalReceived; } }

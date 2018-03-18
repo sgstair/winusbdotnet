@@ -651,6 +651,13 @@ namespace winusbdotnet
         [DllImport("winusb.dll", SetLastError = true)]
         public extern static bool WinUsb_Free(IntPtr interfaceHandle);
 
+
+
+
+        [DllImport("winusb.dll", SetLastError = true)]
+        public extern static bool WinUsb_AbortPipe(IntPtr interfaceHandle, byte pipeID);
+
+
         /*
          BOOL __stdcall WinUsb_ControlTransfer(
           _In_       WINUSB_INTERFACE_HANDLE InterfaceHandle,
